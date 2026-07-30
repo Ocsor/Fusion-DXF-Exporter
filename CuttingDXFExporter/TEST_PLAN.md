@@ -287,12 +287,18 @@ mitred edge. Ensure one support face represents the panel's largest dimensions.
 - It extends `2 mm` beyond each end of that edge.
 - Ordinary square side faces do not create mitre guides.
 
-Repeat with two perpendicular mitred edges sharing one panel corner.
+Repeat with two perpendicular `45 degree` mitred edges sharing one panel corner.
 
 - Both lines remain `0.5 mm` outside their respective mitred edges.
 - Their shared-corner endpoints meet at the offset-line intersection.
 - Neither line receives the `2 mm` extension at the shared corner.
 - Their unconnected endpoints still extend by `2 mm`.
+
+Repeat with two mitred edges of different angles sharing one panel corner.
+
+- Each guide is exported on its corresponding angle-specific layer.
+- Both guides retain the `2 mm` extension at the shared corner.
+- Neither guide is trimmed to the offset-line intersection.
 
 Set `Mitre guide offset` to `1 mm` and export again.
 

@@ -37,7 +37,8 @@ Rear machining and uncertain boundaries remain review-only.
   `FRONT_REBATE_4MM`, with an option to omit depth suffixes.
 - Places each mitre guide on its angle-specific `MITRE_*DEG` layer, offset
   `0.5 mm` outward from the panel edge. Free endpoints extend `2 mm`; adjacent
-  mitre guides meet at their offset-line intersection without extension.
+  guides with the same mitre angle meet at their offset-line intersection
+  without extension, while guides with different angles retain the extension.
 - Provides a unit-aware `Mitre guide offset` command input, defaulting to
   `0.5 mm`, so the guide distance can be changed for each export.
 - Adds the final DXF filename as centred text on a `markups` layer.
@@ -271,9 +272,10 @@ The largest support face remains the source for `CUT_OUTSIDE`. The straight
 mitre edge is projected separately and offset outward from the outside-profile
 centre by the `Mitre guide offset` command value, which defaults to `0.5 mm`.
 A free endpoint is extended along the line axis by `2 mm`. When two detected
-mitre edges share an endpoint, their offset lines are intersected and both
-guides terminate at that common point instead. Each generated line is exported
-on its angle-specific `MITRE_*DEG` layer.
+mitre edges with the same angle share an endpoint, their offset lines are
+intersected and both guides terminate at that common point instead. Meeting
+guides with different mitre angles retain their `2 mm` extension. Each generated
+line is exported on its angle-specific `MITRE_*DEG` layer.
 
 After the operation DXFs are merged, the final filename, including its
 `.dxf` extension, is added as horizontally and vertically centred DXF text.

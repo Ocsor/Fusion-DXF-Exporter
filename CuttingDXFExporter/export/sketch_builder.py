@@ -195,6 +195,7 @@ def _prepare_mitre_guides(
         source_lines,
         (centre_x, centre_y),
         mitre_offset_internal,
+        mitre_angle_keys=[layer_name for layer_name, _ in source_records],
     )
     guide_entities = {layer_name: [] for layer_name in mitre_layers}
     for source_record, guide_segment in zip(source_records, guide_segments):
@@ -229,12 +230,21 @@ def _mitre_guide_segments(
     source_lines: Iterable[Tuple[Tuple[float, float], Tuple[float, float]]],
     outside_centre: Tuple[float, float],
     mitre_offset_internal: float = DEFAULT_MITRE_OFFSET_INTERNAL,
+    mitre_angle_keys: Optional[Iterable[str]] = None,
 ) -> List[Tuple[Tuple[float, float], Tuple[float, float]]]:
     if mitre_offset_internal < 0.0:
         raise ValueError("The mitre guide offset cannot be negative.")
+    source_lines = list(source_lines)
+    angle_keys = (
+        list(mitre_angle_keys)
+        if mitre_angle_keys is not None
+        else [None] * len(source_lines)
+    )
+    if len(angle_keys) != len(source_lines):
+        raise ValueError("Each mitre guide must have one angle key.")
     records = []
     centre_x, centre_y = outside_centre
-    for start, end in source_lines:
+    for line_index, (start, end) in enumerate(source_lines):
         delta_x = end[0] - start[0]
         delta_y = end[1] - start[1]
         length = math.hypot(delta_x, delta_y)
@@ -264,6 +274,7 @@ def _mitre_guide_segments(
             {
                 "source": (start, end),
                 "offset": (offset_start, offset_end),
+                "angle_key": angle_keys[line_index],
                 "guide": [
                     (
                         offset_start[0] - unit_x * MITRE_EXTENSION_INTERNAL,
@@ -300,6 +311,11 @@ def _mitre_guide_segments(
             continue
         first_record_index, first_endpoint_index = group[0]
         second_record_index, second_endpoint_index = group[1]
+        if (
+            records[first_record_index]["angle_key"]
+            != records[second_record_index]["angle_key"]
+        ):
+            continue
         intersection = _line_intersection(
             records[first_record_index]["offset"],
             records[second_record_index]["offset"],
