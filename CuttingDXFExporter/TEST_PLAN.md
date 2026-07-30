@@ -3,7 +3,7 @@
 ## Test Environment
 
 - Current Autodesk Fusion for Windows.
-- Add-in version `0.3.10-phase3`.
+- Add-in version `0.3.11-phase3`.
 - A new parametric Design.
 - Default tolerance `0.01 mm`.
 - An empty writable output folder.
@@ -282,7 +282,7 @@ mitred edge. Ensure one support face represents the panel's largest dimensions.
 
 - `CUT_OUTSIDE` follows the panel at its largest projected dimensions.
 - Analysis reports one mitre guide.
-- The DXF contains a `MITRE_45DEG` layer with one line.
+- The DXF contains a `MITRE_90DEG` layer with one line.
 - The line is parallel to and `0.5 mm` outside the mitred outline edge.
 - It extends `2 mm` beyond each end of that edge.
 - Ordinary square side faces do not create mitre guides.
@@ -299,7 +299,7 @@ Set `Mitre guide offset` to `1 mm` and export again.
 - Every mitre guide is now `1 mm` outside its source edge.
 - Joined mitre guides still meet at their recalculated offset-line intersection.
 - Restoring the field to `0.5 mm` restores the original guide position.
-- A non-integer mitre angle uses a compact suffix such as `MITRE_22.5DEG`.
+- A measured `22.5 degree` mitre uses the calculated layer `MITRE_135DEG`.
 - The final DXF contains a `markups` layer with one centred text entity.
 - The text exactly matches the final DXF filename, including `.dxf`.
 

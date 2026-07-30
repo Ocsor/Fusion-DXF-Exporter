@@ -28,8 +28,8 @@ Rear machining and uncertain boundaries remain review-only.
   at one same-facing planar floor.
 - Detects straight nested bores that begin at a confirmed pocket floor and
   terminate at the rear support plane.
-- Detects planar full-thickness mitre faces and creates angle-specific guide
-  layers such as `MITRE_45DEG` from the largest panel outline.
+- Detects planar full-thickness mitre faces and creates calculated-angle guide
+  layers such as `MITRE_90DEG` from the largest panel outline.
 - Detects front edge rebates when a supported wall from the front outer
   boundary terminates at a recessed same-facing planar floor.
 - Measures pocket and rebate depth perpendicular to the front face.
@@ -262,8 +262,10 @@ A side face is treated as a mitre only when:
 4. Its edge on the largest support-plane outline is straight.
 
 The acute angle between the mitre face and the manufacturing support plane is
-calculated from their face normals. It is rounded to at most three decimal
-places for the layer suffix, for example `MITRE_45DEG` or `MITRE_22.5DEG`.
+calculated from their face normals. The layer suffix is then calculated as
+`180 - (measured angle x 2)` and rounded to at most three decimal places. A
+measured `45 degree` mitre therefore uses `MITRE_90DEG`; a measured
+`22.5 degree` mitre uses `MITRE_135DEG`.
 
 The largest support face remains the source for `CUT_OUTSIDE`. The straight
 mitre edge is projected separately and offset outward from the outside-profile
@@ -342,7 +344,7 @@ explicitly excluded by this project.
 
 ## Startup Troubleshooting
 
-Version `0.3.10` loads project modules inside an add-in-specific runtime
+Version `0.3.11` loads project modules inside an add-in-specific runtime
 namespace. Import failures are shown in Fusion and appended to:
 
 ```text

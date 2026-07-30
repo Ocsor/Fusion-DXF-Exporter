@@ -28,7 +28,8 @@ def layer_name_for_operation(
     ):
         return f"{operation_type.value}_{format_millimetres(depth_mm)}MM"
     if operation_type == OperationType.MITRE and angle_degrees is not None:
-        return f"{operation_type.value}_{_format_degrees(angle_degrees)}DEG"
+        suffix_angle = 180.0 - (angle_degrees * 2.0)
+        return f"{operation_type.value}_{_format_degrees(suffix_angle)}DEG"
     return operation_type.value
 
 
