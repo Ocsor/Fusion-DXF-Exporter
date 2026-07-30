@@ -106,10 +106,11 @@ def write_analysis_json(
     document = {
         "addin_version": addin_version,
         "export_date_utc": datetime.now(timezone.utc).isoformat(),
-        "phase": 3,
+        "phase": 4,
         "include_depth_in_layer_names": include_depth_in_layer_names,
         "rear_geometry_convention": (
-            "Reserved for Phase 4; rear machining is not exported in Phase 3."
+            "Rear machining is projected onto the front manufacturing plane "
+            "and appears as seen through the part from the front."
         ),
         "analyses": [analysis.to_dict() for analysis in analyses],
         "export_results": [result.to_dict() for result in export_results],

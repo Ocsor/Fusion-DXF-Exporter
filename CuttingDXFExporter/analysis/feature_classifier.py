@@ -1,4 +1,4 @@
-"""Conservative cutting, front-pocket, and front-rebate classification."""
+"""Conservative cutting, pocket, and rebate classification."""
 
 import math
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -144,6 +144,56 @@ def classify_front_support_faces(
             if operation.operation_type != OperationType.CUT_OUTSIDE
         )
     operations.extend(_outside_profile_operations(outside_profile_face))
+    return _deduplicate_operations(operations)
+
+
+def classify_rear_support_faces(
+    rear_faces: Iterable[Any],
+    front_faces: Iterable[Any],
+    outside_profile_face: Any,
+    rear_origin: Tuple[float, float, float],
+    rear_normal: Tuple[float, float, float],
+    thickness_internal: float,
+    thickness_mm: float,
+    distance_tolerance_internal: float,
+    angular_tolerance_radians: float,
+) -> List[DetectedOperation]:
+    """Classify machining visible from the rear manufacturing face."""
+
+    candidates = classify_front_support_faces(
+        rear_faces,
+        front_faces,
+        outside_profile_face,
+        rear_origin,
+        rear_normal,
+        thickness_internal,
+        thickness_mm,
+        distance_tolerance_internal,
+        angular_tolerance_radians,
+    )
+    operation_types = {
+        OperationType.FRONT_POCKET: OperationType.BACK_POCKET,
+        OperationType.FRONT_REBATE: OperationType.BACK_REBATE,
+    }
+    operations = []
+    for operation in candidates:
+        operation_type = operation_types.get(operation.operation_type)
+        if operation_type is not None:
+            operation.operation_type = operation_type
+            operation.side = OperationSide.BACK
+            operation.proposed_layer = layer_name_for_operation(
+                operation_type,
+                operation.depth_mm,
+                include_depth=True,
+            )
+            operations.append(operation)
+            continue
+        if operation.operation_type == OperationType.UNKNOWN:
+            operation.side = OperationSide.BACK
+            for warning in operation.warnings:
+                if warning.code == "FRONT_FEATURE_NOT_CLASSIFIED":
+                    warning.code = "REAR_FEATURE_NOT_CLASSIFIED"
+            operations.append(operation)
     return _deduplicate_operations(operations)
 
 

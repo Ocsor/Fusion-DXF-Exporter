@@ -1,4 +1,4 @@
-# Cutting DXF Exporter - Phase 3 Test Plan
+# Cutting DXF Exporter - Phase 4 Test Plan
 
 ## Test Environment
 
@@ -132,6 +132,22 @@ Create a straight `4 mm` deep rebate open to one outside edge.
   applies the configurable offset only to its remaining edge.
 - Setting `Rebate offset` to `0 mm` restores the exact detected rebate boundary.
 - `CUT_OUTSIDE` is sourced from the largest complete support-plane face.
+
+## 8A. Rear Pocket and Rebate Export
+
+Create a panel with a `6 mm` pocket and a `4 mm` edge rebate machined from the
+rear face. Select the intended front face manually so the machining remains on
+the rear side.
+
+### Expected Result
+
+- Analysis reports `BACK_POCKET_6MM` and `BACK_REBATE_4MM`.
+- With `Include rear machining` cleared, neither rear layer is in the DXF.
+- With `Include rear machining` selected, both rear layers are in the DXF.
+- Rear geometry appears as seen through the panel from the selected front view.
+- The rear rebate uses the same `5 mm` touching-edge extension and configurable
+  offset as a front rebate.
+- Front machining and through-cut layers remain unchanged.
 
 ## 9. Automatic Split-Front Orientation
 

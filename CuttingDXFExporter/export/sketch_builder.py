@@ -15,6 +15,8 @@ PHASE_THREE_OPERATION_TYPES = (
     OperationType.CUT_INSIDE,
     OperationType.FRONT_POCKET,
     OperationType.FRONT_REBATE,
+    OperationType.BACK_POCKET,
+    OperationType.BACK_REBATE,
     OperationType.MITRE,
 )
 DEFAULT_MITRE_OFFSET_INTERNAL = 0.05
@@ -51,6 +53,7 @@ def build_phase_three_sketches(
     body: Any,
     analysis: BodyAnalysis,
     include_front_machining: bool,
+    include_rear_machining: bool,
     include_depth_in_layer_names: bool,
     mitre_offset_internal: float = DEFAULT_MITRE_OFFSET_INTERNAL,
     rebate_offset_internal: float = DEFAULT_REBATE_OFFSET_INTERNAL,
@@ -67,6 +70,7 @@ def build_phase_three_sketches(
     operations_by_layer = _supported_operations(
         analysis.operations,
         include_front_machining,
+        include_rear_machining,
         include_depth_in_layer_names,
     )
     if not operations_by_layer.get(OperationType.CUT_OUTSIDE.value):
@@ -134,6 +138,7 @@ def cleanup_temporary_sketches(sketch_set: TemporarySketchSet) -> List[str]:
 def _supported_operations(
     operations: Iterable[DetectedOperation],
     include_front_machining: bool,
+    include_rear_machining: bool,
     include_depth_in_layer_names: bool,
 ) -> Dict[str, List[DetectedOperation]]:
     grouped: Dict[str, List[DetectedOperation]] = {}
@@ -144,6 +149,12 @@ def _supported_operations(
             operation.operation_type
             in {OperationType.FRONT_POCKET, OperationType.FRONT_REBATE}
             and not include_front_machining
+        ):
+            continue
+        if (
+            operation.operation_type
+            in {OperationType.BACK_POCKET, OperationType.BACK_REBATE}
+            and not include_rear_machining
         ):
             continue
         layer_name = layer_name_for_operation(
@@ -168,8 +179,13 @@ def _prepare_rebate_geometry(
         layer_name
         for layer_name in sketch_set.entities
         if (
-            layer_name == OperationType.FRONT_REBATE.value
+            layer_name
+            in {
+                OperationType.FRONT_REBATE.value,
+                OperationType.BACK_REBATE.value,
+            }
             or layer_name.startswith(f"{OperationType.FRONT_REBATE.value}_")
+            or layer_name.startswith(f"{OperationType.BACK_REBATE.value}_")
         )
     ]
     outside_lines = [

@@ -16,6 +16,7 @@ from .face_analyser import (
 from .feature_classifier import (
     classify_front_face_loops,
     classify_front_support_faces,
+    classify_rear_support_faces,
     create_mitre_guide_operations,
 )
 from ..models.analysis_models import (
@@ -225,6 +226,19 @@ def analyse_body(
         tolerance_internal,
         DEFAULT_ANGULAR_TOLERANCE_RADIANS,
     )
+    analysis.operations.extend(
+        classify_rear_support_faces(
+            [record.face for record in rear_support_faces],
+            [record.face for record in front_support_faces],
+            outside_profile.face,
+            rear.origin,
+            rear.normal,
+            thickness_internal,
+            analysis.thickness_mm,
+            tolerance_internal,
+            DEFAULT_ANGULAR_TOLERANCE_RADIANS,
+        )
+    )
     mitre_edges = collect_mitre_edges(
         planar_faces,
         front_support_faces,
@@ -237,10 +251,10 @@ def analyse_body(
     _apply_operation_review_state(analysis)
     _warn(
         analysis,
-        "PHASE3_CLASSIFICATION_LIMIT",
+        "PHASE4_CLASSIFICATION_LIMIT",
         (
-            "Phase 3 classifies simple front pockets, edge rebates, and planar "
-            "full-thickness mitres; rear machining and complex features remain "
+            "Phase 4 classifies simple front and rear pockets, edge rebates, "
+            "and planar full-thickness mitres; complex features remain "
             "unsupported."
         ),
         WarningSeverity.INFO,

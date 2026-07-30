@@ -118,10 +118,10 @@ def selected_faces_by_body(
 
 
 def format_analysis_summary(analyses: Iterable[BodyAnalysis]) -> str:
-    """Build the operator-facing Phase 3 review."""
+    """Build the operator-facing Phase 4 review."""
 
     sections: List[str] = [
-        "CUTTING DXF EXPORTER — PHASE 3 ANALYSIS",
+        "CUTTING DXF EXPORTER — PHASE 4 ANALYSIS",
         "Review all classifications before approving DXF export.",
         "",
     ]
@@ -170,10 +170,17 @@ def format_analysis_summary(analyses: Iterable[BodyAnalysis]) -> str:
                     f"{_operation_depth_summary(analysis, OperationType.FRONT_REBATE)}"
                 ),
                 (
+                    "  Rear pockets: "
+                    f"{_operation_depth_summary(analysis, OperationType.BACK_POCKET)}"
+                ),
+                (
+                    "  Rear rebates: "
+                    f"{_operation_depth_summary(analysis, OperationType.BACK_REBATE)}"
+                ),
+                (
                     "  Mitre guides: "
                     f"{analysis.operation_count(OperationType.MITRE)}"
                 ),
-                "  Rear pockets/rebates: Not classified in Phase 3",
                 (
                     "  Unresolved visible boundaries: "
                     f"{analysis.operation_count(OperationType.UNKNOWN)}"

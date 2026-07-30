@@ -3,12 +3,12 @@
 Cutting DXF Exporter is a Windows Autodesk Fusion add-in that derives
 manufacturing DXF files from finished solid B-Rep geometry.
 
-The current release implements **Phase 3 - Front Pockets and Rebates**. It
-exports the principal outside profile, confirmed through-cuts, simple
-flat-bottom front pockets, and simple front edge rebates from final topology.
-Rear machining and uncertain boundaries remain review-only.
+The current release implements **Phase 4 - Rear Machining**. It exports the
+principal outside profile, confirmed through-cuts, simple front and rear
+flat-bottom pockets, and simple front and rear edge rebates from final topology.
+Uncertain boundaries remain review-only.
 
-## Phase 3 Features
+## Phase 4 Features
 
 - Adds **Export Cutting DXFs** to the Design workspace Add-Ins panel.
 - Accepts one or more finished solid `BRepBody` selections.
@@ -32,9 +32,14 @@ Rear machining and uncertain boundaries remain review-only.
   layers such as `MITRE_90DEG` from the largest panel outline.
 - Detects front edge rebates when a supported wall from the front outer
   boundary terminates at a recessed same-facing planar floor.
-- Measures pocket and rebate depth perpendicular to the front face.
+- Measures pocket and rebate depth perpendicular to the corresponding front or
+  rear manufacturing face.
 - Creates depth layers such as `FRONT_POCKET_6MM` and
   `FRONT_REBATE_4MM`, with an option to omit depth suffixes.
+- Classifies confirmed rear pockets and rebates onto depth layers such as
+  `BACK_POCKET_6MM` and `BACK_REBATE_4MM`.
+- Provides an `Include rear machining` option. Rear geometry is projected onto
+  the front manufacturing plane and appears as seen through from the front.
 - Extends straight rebate edges that touch the outside profile by `5 mm`.
   Remaining edges expand by the configurable rebate offset, defaulting to
   `0.3 mm`. Setting the offset to `0 mm` preserves the detected rebate size.
@@ -127,7 +132,7 @@ CuttingDXFExporter/
 For development, keep the folder anywhere and use the `+` command in
 **Scripts and Add-Ins** to link the folder from the device.
 
-## Using Phase 3
+## Using Phase 4
 
 1. Open a Design containing one or more finished flat solid bodies.
 2. Run **Export Cutting DXFs**.
@@ -138,7 +143,8 @@ For development, keep the folder anywhere and use the `+` command in
    The detected thickness suffix is added automatically.
 7. Leave the analysis tolerance at `0.01 mm` unless a justified model
    tolerance requires another value.
-8. Choose whether to include front machining and depth-specific layer names.
+8. Choose whether to include front machining, rear machining, and
+   depth-specific layer names.
 9. Optionally enable CSV and diagnostic JSON reports.
 10. Choose whether temporary sketches should be deleted.
 11. Select **Analyse and Review**.
@@ -149,7 +155,7 @@ For development, keep the folder anywhere and use the `+` command in
 14. Review the final per-body result dialog and
     `cutting_dxf_export.log`.
 
-`UNKNOWN` geometry is never exported in Phase 3.
+`UNKNOWN` geometry is never exported in Phase 4.
 
 ## Output Folders and Filenames
 
@@ -218,7 +224,7 @@ For each inner loop on the selected front face:
 This intentionally rejects multi-depth wall chains and ambiguous topology. A
 rear support plane split into several coplanar B-Rep faces is supported.
 
-## Front Pocket and Rebate Classification
+## Pocket and Rebate Classification
 
 For an enclosed front loop, the classifier:
 
@@ -235,12 +241,16 @@ front outer boundary. A qualifying open-edge feature is classified as
 `FRONT_REBATE`. Angled, non-planar, multi-floor, and near-through features
 remain `UNKNOWN`.
 
-Before export, each straight connected `FRONT_REBATE` boundary is compared with
-the `CUT_OUTSIDE` profile. Every rebate edge that lies on the outside profile
-is extended outward by `5 mm`. The other edges expand by the `Rebate offset`
-command value, which defaults to `0.3 mm`. A value of `0 mm` exports the
-detected boundary without changing its size. Curved rebate boundaries retain
-the uniform configurable offset.
+The same classification runs from the rear support plane using its outward
+normal. Confirmed rear features become `BACK_POCKET` and `BACK_REBATE`
+operations with depths measured from the rear face.
+
+Before export, each straight connected front or rear rebate boundary is
+compared with the `CUT_OUTSIDE` profile. Every rebate edge that lies on the
+outside profile is extended outward by `5 mm`. The other edges expand by the
+`Rebate offset` command value, which defaults to `0.3 mm`. A value of `0 mm`
+exports the detected boundary without changing its size. Curved rebate
+boundaries retain the uniform configurable offset.
 
 After confirming a pocket, each inner loop on its planar floor is inspected.
 If every adjacent nested wall reaches the rear support plane, that smaller
@@ -258,9 +268,9 @@ is canonicalized for repeatable exports. If no suitable line exists, a stable
 projected global axis is used. Exported sketch geometry is rotated to that
 axis, and the minimum X and Y of `CUT_OUTSIDE` are translated to `0,0`.
 
-Rear export is not implemented yet. The fixed future convention remains: the
-DXF is viewed from the front, and rear machining will appear as seen through
-the part from that front view.
+The DXF is viewed from the front. Rear machining is projected onto the selected
+front manufacturing plane and appears as seen through the part from that front
+view.
 
 ## Mitre Guide Classification
 
@@ -332,11 +342,10 @@ If unavailable, analysis still works but export reports a clear per-body error.
 There is no `Sketch.saveAsDXF` fallback because that API is retired and is
 explicitly excluded by this project.
 
-## Known Phase 3 Limitations
+## Known Phase 4 Limitations
 
-- Rear pockets and rear rebates are not classified or exported.
 - Pocket/rebate walls are limited to perpendicular planes and cylinders with
-  axes parallel to the front normal.
+  axes parallel to the corresponding manufacturing-face normal.
 - Mitre guides are limited to straight edges on planar bevel faces spanning
   the complete material thickness. Curved, partial-depth, compound, and
   non-planar mitres remain unsupported.
@@ -366,6 +375,6 @@ namespace. Import failures are shown in Fusion and appended to:
 ## Safety Guarantees
 
 The add-in never modifies or deletes original bodies, components, sketches, or
-timeline features. Phase 3 temporarily creates root-component sketches and
+timeline features. Phase 4 temporarily creates root-component sketches and
 deletes only the exact sketch objects it created. Disabling cleanup deliberately
 leaves those named `DXF_TEMP_*` sketches for inspection.

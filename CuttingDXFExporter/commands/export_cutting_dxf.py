@@ -1,4 +1,4 @@
-"""Fusion UI command for Phase 3 analysis and cutting DXF export."""
+"""Fusion UI command for Phase 4 analysis and cutting DXF export."""
 
 import json
 import os
@@ -46,7 +46,7 @@ COMMAND_DESCRIPTION = (
 )
 WORKSPACE_ID = "FusionSolidEnvironment"
 PANEL_ID = "SolidScriptsAddinsPanel"
-ADDIN_VERSION = "0.3.11-phase3"
+ADDIN_VERSION = "0.4.0-phase4"
 INITIAL_DIALOG_WIDTH = 430
 INITIAL_DIALOG_HEIGHT = 700
 MINIMUM_DIALOG_WIDTH = 380
@@ -62,6 +62,7 @@ DELETE_TEMP_INPUT_ID = "delete_temp"
 FILENAME_INPUT_ID = "filename_format"
 OPEN_FOLDER_INPUT_ID = "open_folder"
 INCLUDE_FRONT_INPUT_ID = "include_front"
+INCLUDE_REAR_INPUT_ID = "include_rear"
 WRITE_CSV_INPUT_ID = "write_csv"
 WRITE_JSON_INPUT_ID = "write_json"
 DEPTH_LAYERS_INPUT_ID = "depth_layers"
@@ -157,9 +158,10 @@ class CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
                 "phase_notice",
                 "",
                 (
-                    "<b>Phase 3:</b> exports outside profiles, through-cuts, "
-                    "front pockets, edge rebates, and full-thickness planar "
-                    "mitre guides. Review all detected operations before export."
+                    "<b>Phase 4:</b> exports outside profiles, through-cuts, "
+                    "front machining, optional rear machining, and full-thickness "
+                    "planar mitre guides. Review all detected operations before "
+                    "export."
                 ),
                 3,
                 True,
@@ -419,6 +421,9 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
             include_front_machining = command_inputs.itemById(
                 INCLUDE_FRONT_INPUT_ID
             ).value
+            include_rear_machining = command_inputs.itemById(
+                INCLUDE_REAR_INPUT_ID
+            ).value
             include_depth_in_layer_names = command_inputs.itemById(
                 DEPTH_LAYERS_INPUT_ID
             ).value
@@ -437,6 +442,7 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
                     output_folder=output_folder,
                     filename_template=filename_template,
                     include_front_machining=include_front_machining,
+                    include_rear_machining=include_rear_machining,
                     include_depth_in_layer_names=include_depth_in_layer_names,
                     mitre_offset_internal=mitre_offset_internal,
                     rebate_offset_internal=rebate_offset_internal,
@@ -508,8 +514,8 @@ def _add_phase_three_export_options(inputs: adsk.core.CommandInputs) -> None:
         "export_options_notice",
         "Export options",
         (
-            "Phase 3 exports confirmed front machining and MITRE guide lines. "
-            "Rear machining and UNKNOWN geometry remain disabled."
+            "Phase 4 exports confirmed front and optional rear machining plus "
+            "MITRE guide lines. UNKNOWN geometry remains disabled."
         ),
         2,
         True,
@@ -518,7 +524,7 @@ def _add_phase_three_export_options(inputs: adsk.core.CommandInputs) -> None:
     definitions = (
         ("one_dxf_per_body", "One DXF per body", True, False),
         (INCLUDE_FRONT_INPUT_ID, "Include front machining", True, True),
-        ("include_rear", "Include rear machining", False, False),
+        (INCLUDE_REAR_INPUT_ID, "Include rear machining", False, True),
         (
             DELETE_TEMP_INPUT_ID,
             "Delete temporary sketches after export",
@@ -576,7 +582,7 @@ def _format_export_summary(
     report_paths: List[str],
     report_errors: List[str],
 ) -> str:
-    lines = ["CUTTING DXF EXPORTER — PHASE 3 RESULTS", ""]
+    lines = ["CUTTING DXF EXPORTER — PHASE 4 RESULTS", ""]
     for analysis, result in zip(analyses, export_results):
         lines.append(f"{analysis.component_name} / {analysis.body_name}")
         if result.succeeded:

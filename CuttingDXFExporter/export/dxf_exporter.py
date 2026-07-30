@@ -1,4 +1,4 @@
-"""Fusion sketch export and Phase 3 body-DXF orchestration."""
+"""Fusion sketch export and Phase 4 body-DXF orchestration."""
 
 import logging
 import os
@@ -54,6 +54,7 @@ def export_phase_three_body(
     output_folder: str,
     filename_template: str,
     include_front_machining: bool,
+    include_rear_machining: bool,
     include_depth_in_layer_names: bool,
     mitre_offset_internal: float,
     rebate_offset_internal: float,
@@ -99,6 +100,7 @@ def export_phase_three_body(
             body,
             analysis,
             include_front_machining,
+            include_rear_machining,
             include_depth_in_layer_names,
             mitre_offset_internal=mitre_offset_internal,
             rebate_offset_internal=rebate_offset_internal,
@@ -131,6 +133,7 @@ def export_phase_three_body(
             for operations in _exported_operations_by_layer(
                 analysis,
                 include_front_machining,
+                include_rear_machining,
                 include_depth_in_layer_names,
             ).values()
         )
@@ -158,7 +161,7 @@ def export_phase_three_body(
             if os.path.isfile(path)
         ]
         logger.exception(
-            "Phase 3 DXF export failed component=%s body=%s",
+            "Phase 4 DXF export failed component=%s body=%s",
             analysis.component_name,
             analysis.body_name,
         )
@@ -185,6 +188,7 @@ def export_phase_three_body(
 def _exported_operations_by_layer(
     analysis: BodyAnalysis,
     include_front_machining: bool,
+    include_rear_machining: bool,
     include_depth_in_layer_names: bool,
 ) -> Dict[str, list]:
     from ..utilities.layer_utils import layer_name_for_operation
@@ -197,6 +201,8 @@ def _exported_operations_by_layer(
     }
     if include_front_machining:
         supported.update({OperationType.FRONT_POCKET, OperationType.FRONT_REBATE})
+    if include_rear_machining:
+        supported.update({OperationType.BACK_POCKET, OperationType.BACK_REBATE})
     for operation in analysis.operations:
         if operation.operation_type not in supported:
             continue
