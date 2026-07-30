@@ -18,6 +18,7 @@ PHASE_THREE_OPERATION_TYPES = (
     OperationType.MITRE,
 )
 DEFAULT_MITRE_OFFSET_INTERNAL = 0.05
+DEFAULT_REBATE_OFFSET_INTERNAL = 0.03
 MITRE_EXTENSION_INTERNAL = 0.2
 MITRE_ENDPOINT_TOLERANCE_INTERNAL = 0.001
 
@@ -50,6 +51,7 @@ def build_phase_three_sketches(
     include_front_machining: bool,
     include_depth_in_layer_names: bool,
     mitre_offset_internal: float = DEFAULT_MITRE_OFFSET_INTERNAL,
+    rebate_offset_internal: float = DEFAULT_REBATE_OFFSET_INTERNAL,
     sketch_set: Optional[TemporarySketchSet] = None,
 ) -> TemporarySketchSet:
     """Create aligned, origin-shifted sketches for supported operations."""
@@ -89,6 +91,7 @@ def build_phase_three_sketches(
 
     outside_layer = OperationType.CUT_OUTSIDE.value
     outside_sketch = sketch_set.sketches[outside_layer]
+    _prepare_rebate_geometry(sketch_set, rebate_offset_internal)
     _prepare_mitre_guides(
         sketch_set,
         outside_layer,
@@ -149,6 +152,111 @@ def _supported_operations(
         )
         grouped.setdefault(layer_name, []).append(operation)
     return grouped
+
+
+def _prepare_rebate_geometry(
+    sketch_set: TemporarySketchSet,
+    rebate_offset_internal: float,
+) -> None:
+    if rebate_offset_internal < 0.0:
+        raise ValueError("The rebate offset cannot be negative.")
+    if rebate_offset_internal <= 1e-12:
+        return
+    rebate_layers = [
+        layer_name
+        for layer_name in sketch_set.entities
+        if (
+            layer_name == OperationType.FRONT_REBATE.value
+            or layer_name.startswith(f"{OperationType.FRONT_REBATE.value}_")
+        )
+    ]
+    for layer_name in rebate_layers:
+        sketch = sketch_set.sketches[layer_name]
+        source_entities = sketch_set.entities[layer_name]
+        expanded_entities = []
+        for connected_entities in _connected_curve_groups(sketch, source_entities):
+            minimum_x, minimum_y, maximum_x, maximum_y = _entity_bounds(
+                connected_entities
+            )
+            direction_margin = max(rebate_offset_internal * 2.0, 0.1)
+            direction_point = adsk.core.Point3D.create(
+                minimum_x - direction_margin,
+                (minimum_y + maximum_y) / 2.0,
+                0.0,
+            )
+            constraints = sketch.geometricConstraints
+            existing_constraint_count = constraints.count
+            offset_curves = list(
+                sketch.offset(
+                    _object_collection(connected_entities),
+                    direction_point,
+                    rebate_offset_internal,
+                )
+            )
+            if not offset_curves:
+                raise RuntimeError(
+                    f"Fusion did not offset rebate geometry on {layer_name}."
+                )
+            added_constraints = [
+                constraints.item(index)
+                for index in range(existing_constraint_count, constraints.count)
+            ]
+            for constraint in reversed(added_constraints):
+                if getattr(constraint, "isDeletable", False):
+                    if not constraint.deleteMe():
+                        raise RuntimeError(
+                            f"Could not detach rebate offset on {layer_name}."
+                        )
+            if not all(getattr(curve, "isValid", True) for curve in offset_curves):
+                raise RuntimeError(
+                    f"Fusion invalidated rebate offset geometry on {layer_name}."
+                )
+            offset_bounds = _entity_bounds(offset_curves)
+            bounds_tolerance = 1e-9
+            if (
+                offset_bounds[0] > minimum_x + bounds_tolerance
+                or offset_bounds[1] > minimum_y + bounds_tolerance
+                or offset_bounds[2] < maximum_x - bounds_tolerance
+                or offset_bounds[3] < maximum_y - bounds_tolerance
+            ):
+                raise RuntimeError(
+                    f"Fusion offset rebate geometry inward on {layer_name}."
+                )
+            for entity in connected_entities:
+                if not entity.deleteMe():
+                    raise RuntimeError(
+                        f"Could not replace rebate geometry on {layer_name}."
+                    )
+            expanded_entities.extend(offset_curves)
+        sketch_set.entities[layer_name] = expanded_entities
+
+
+def _connected_curve_groups(
+    sketch: Any,
+    entities: Iterable[Any],
+) -> List[List[Any]]:
+    entities_by_key = {_entity_key(entity): entity for entity in entities}
+    remaining_keys = set(entities_by_key)
+    groups = []
+    while remaining_keys:
+        seed_key = next(iter(remaining_keys))
+        seed = entities_by_key[seed_key]
+        connected = list(sketch.findConnectedCurves(seed))
+        group = [
+            entity
+            for entity in connected
+            if _entity_key(entity) in entities_by_key
+        ]
+        if not group:
+            group = [seed]
+        group_keys = {_entity_key(entity) for entity in group}
+        remaining_keys.difference_update(group_keys)
+        groups.append(group)
+    return groups
+
+
+def _entity_key(entity: Any) -> str:
+    return getattr(entity, "entityToken", "") or str(id(entity))
 
 
 def _prepare_mitre_guides(

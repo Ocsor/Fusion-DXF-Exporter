@@ -124,6 +124,9 @@ Create a straight `4 mm` deep rebate open to one outside edge.
 
 - Analysis reports one front rebate at approximately `4 mm`.
 - The rebate boundary appears on `FRONT_REBATE_4MM`.
+- With the default `Rebate offset` of `0.3 mm`, every rebate edge is expanded
+  outward by `0.3 mm`.
+- Setting `Rebate offset` to `0 mm` restores the exact detected rebate boundary.
 - `CUT_OUTSIDE` is sourced from the largest complete support-plane face.
 
 ## 9. Automatic Split-Front Orientation

@@ -66,6 +66,7 @@ WRITE_CSV_INPUT_ID = "write_csv"
 WRITE_JSON_INPUT_ID = "write_json"
 DEPTH_LAYERS_INPUT_ID = "depth_layers"
 MITRE_OFFSET_INPUT_ID = "mitre_offset"
+REBATE_OFFSET_INPUT_ID = "rebate_offset"
 
 FACE_MODES = (
     "Automatic: largest planar face",
@@ -424,6 +425,9 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
             mitre_offset_internal = command_inputs.itemById(
                 MITRE_OFFSET_INPUT_ID
             ).value
+            rebate_offset_internal = command_inputs.itemById(
+                REBATE_OFFSET_INPUT_ID
+            ).value
             export_results = []
             for body, analysis in zip(bodies, analyses):
                 export_result = export_phase_three_body(
@@ -435,6 +439,7 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
                     include_front_machining=include_front_machining,
                     include_depth_in_layer_names=include_depth_in_layer_names,
                     mitre_offset_internal=mitre_offset_internal,
+                    rebate_offset_internal=rebate_offset_internal,
                     delete_temporary_sketches=delete_temporary_sketches,
                     logger=logger,
                 )
@@ -550,6 +555,18 @@ def _add_phase_three_export_options(inputs: adsk.core.CommandInputs) -> None:
     mitre_offset.isMinimumInclusive = True
     mitre_offset.tooltip = (
         "Outward distance from each detected mitre edge to its MITRE guide."
+    )
+    rebate_offset = inputs.addValueInput(
+        REBATE_OFFSET_INPUT_ID,
+        "Rebate offset",
+        "mm",
+        adsk.core.ValueInput.createByString("0.3 mm"),
+    )
+    rebate_offset.minimumValue = 0.0
+    rebate_offset.isMinimumInclusive = True
+    rebate_offset.tooltip = (
+        "Outward expansion applied to every edge of detected rebate geometry. "
+        "Set to 0 mm to export the detected size unchanged."
     )
 
 

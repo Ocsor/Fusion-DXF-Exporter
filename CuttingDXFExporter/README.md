@@ -35,6 +35,9 @@ Rear machining and uncertain boundaries remain review-only.
 - Measures pocket and rebate depth perpendicular to the front face.
 - Creates depth layers such as `FRONT_POCKET_6MM` and
   `FRONT_REBATE_4MM`, with an option to omit depth suffixes.
+- Expands detected rebate geometry outward by a configurable offset on every
+  edge. The default is `0.3 mm`; setting it to `0 mm` preserves the detected
+  rebate size.
 - Places each mitre guide on its angle-specific `MITRE_*DEG` layer, offset
   `0.5 mm` outward from the panel edge. Free endpoints extend `2 mm`; adjacent
   guides with the same mitre angle meet at their offset-line intersection
@@ -231,6 +234,11 @@ The same floor-depth checks are applied to recessed geometry reached from the
 front outer boundary. A qualifying open-edge feature is classified as
 `FRONT_REBATE`. Angled, non-planar, multi-floor, and near-through features
 remain `UNKNOWN`.
+
+Before export, each connected `FRONT_REBATE` boundary is expanded outward by
+the `Rebate offset` command value. The default `0.3 mm` increases the boundary
+by `0.3 mm` on every edge. A value of `0 mm` exports the detected boundary
+without changing its size.
 
 After confirming a pocket, each inner loop on its planar floor is inspected.
 If every adjacent nested wall reaches the rear support plane, that smaller

@@ -56,6 +56,7 @@ def export_phase_three_body(
     include_front_machining: bool,
     include_depth_in_layer_names: bool,
     mitre_offset_internal: float,
+    rebate_offset_internal: float,
     delete_temporary_sketches: bool,
     logger: logging.Logger,
 ) -> ExportResult:
@@ -100,6 +101,7 @@ def export_phase_three_body(
             include_front_machining,
             include_depth_in_layer_names,
             mitre_offset_internal=mitre_offset_internal,
+            rebate_offset_internal=rebate_offset_internal,
             sketch_set=sketch_set,
         )
         export_manager = design.exportManager
