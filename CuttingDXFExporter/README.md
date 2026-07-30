@@ -41,6 +41,10 @@ Rear machining and uncertain boundaries remain review-only.
 - Provides a unit-aware `Mitre guide offset` command input, defaulting to
   `0.5 mm`, so the guide distance can be changed for each export.
 - Adds the final DXF filename as centred text on a `markups` layer.
+- Removes Fusion's trailing document version, such as `v3`, from the top-level
+  design folder name.
+- Atomically overwrites an existing DXF when its generated material folder and
+  filename match the new export.
 - Requires a Yes/No operator confirmation after showing the analysis.
 - Creates separate temporary sketches for every required operation/depth layer.
 - Uses `Sketch.project2(..., False)` where available to preserve lines, circles,
@@ -146,8 +150,9 @@ For development, keep the folder anywhere and use the `+` command in
 ## Output Folders and Filenames
 
 The selected output folder is treated as the parent destination. The add-in
-creates a folder named from the current Fusion design filename, followed by a
-physical-material folder. The final path is:
+creates a folder named from the current Fusion design filename without a
+trailing Fusion version such as ` v3`, followed by a physical-material folder.
+The final path is:
 
 ```text
 <selected output>\<Fusion filename>\<material>\<name>_<thickness>mm.dxf
@@ -165,12 +170,15 @@ available, the folder is `Unspecified Material`. Thickness is rounded to at
 most three decimal places, so values such as `15 mm` and `18.5 mm` become
 `_15mm` and `_18.5mm`.
 
-The following session files are written directly in the Fusion-filename
-folder, alongside the material folders:
+The following session files are written directly in the version-free
+Fusion-design folder, alongside the material folders:
 
 - `cutting_dxf_export.log`
 - `cutting_dxf_analysis.csv`, when enabled
 - `cutting_dxf_analysis.json`, when enabled
+
+If the generated material folder already contains a DXF with the same filename,
+the completed new DXF atomically replaces it. Unrelated DXFs are not changed.
 
 ## Geometry and Thickness Algorithm
 
@@ -265,7 +273,7 @@ mitre edges share an endpoint, their offset lines are intersected and both
 guides terminate at that common point instead. Each generated line is exported
 on its angle-specific `MITRE_*DEG` layer.
 
-After the operation DXFs are merged, the final unique filename, including its
+After the operation DXFs are merged, the final filename, including its
 `.dxf` extension, is added as horizontally and vertically centred DXF text.
 The text is positioned from the `CUT_OUTSIDE` bounds and placed on the lowercase
 `markups` layer so it can be hidden or assigned a marking toolpath separately.
@@ -334,7 +342,7 @@ explicitly excluded by this project.
 
 ## Startup Troubleshooting
 
-Version `0.3.9` loads project modules inside an add-in-specific runtime
+Version `0.3.10` loads project modules inside an add-in-specific runtime
 namespace. Import failures are shown in Fusion and appended to:
 
 ```text

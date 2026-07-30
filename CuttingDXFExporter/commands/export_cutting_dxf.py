@@ -46,7 +46,7 @@ COMMAND_DESCRIPTION = (
 )
 WORKSPACE_ID = "FusionSolidEnvironment"
 PANEL_ID = "SolidScriptsAddinsPanel"
-ADDIN_VERSION = "0.3.9-phase3"
+ADDIN_VERSION = "0.3.10-phase3"
 INITIAL_DIALOG_WIDTH = 430
 INITIAL_DIALOG_HEIGHT = 700
 MINIMUM_DIALOG_WIDTH = 380
@@ -180,8 +180,9 @@ class CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
             )
             output_folder.tooltip = (
                 (
-                    "A Fusion-filename folder is created here, containing "
-                    "material folders, DXFs, logs, and optional reports."
+                    "A Fusion-design folder is created here without its version "
+                    "suffix, containing material folders, DXFs, logs, and "
+                    "optional reports."
                 )
             )
             inputs.addBoolValueInput(

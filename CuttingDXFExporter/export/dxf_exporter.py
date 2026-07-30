@@ -89,9 +89,7 @@ def export_phase_three_body(
             analysis.material_name,
         )
         os.makedirs(material_folder, exist_ok=True)
-        output_path = unique_path(
-            os.path.join(material_folder, f"{filename}.dxf")
-        )
+        output_path = os.path.join(material_folder, f"{filename}.dxf")
         result.output_path = output_path
 
         sketch_set = TemporarySketchSet()

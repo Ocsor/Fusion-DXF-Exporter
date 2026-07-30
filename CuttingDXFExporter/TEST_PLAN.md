@@ -3,7 +3,7 @@
 ## Test Environment
 
 - Current Autodesk Fusion for Windows.
-- Add-in version `0.3.9-phase3`.
+- Add-in version `0.3.10-phase3`.
 - A new parametric Design.
 - Default tolerance `0.01 mm`.
 - An empty writable output folder.
@@ -256,18 +256,22 @@ Export the same unchanged body twice to the same folder.
 
 1. Assign `Birch Plywood` to a `15 mm` body.
 2. Assign `MDF` to a separate `18.5 mm` body.
-3. Save the Fusion design as `Kitchen Project`.
+3. Save the Fusion design as `Kitchen Project` and ensure Fusion displays a
+   suffix such as `Kitchen Project v3`.
 4. Export both using `{component}_{body}`.
 
 ### Expected Result
 
 - A `Kitchen Project` folder is created in the selected output folder.
+- No `Kitchen Project v3` folder is created.
 - The first DXF is under `Kitchen Project\Birch Plywood` and ends in
   `_15mm.dxf`.
 - The second DXF is under `Kitchen Project\MDF` and ends in `_18.5mm.dxf`.
 - Invalid Windows filename characters in material names are replaced safely.
 - An unassigned body uses the `Unspecified Material` folder.
 - The log, CSV, and JSON are directly inside `Kitchen Project`.
+- Exporting again replaces each matching DXF instead of creating an `_2` copy.
+- Unrelated DXFs already in the material folder remain unchanged.
 
 ## 20. Full-Thickness Planar Mitre
 

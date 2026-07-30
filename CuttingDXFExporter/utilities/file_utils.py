@@ -7,6 +7,7 @@ from pathlib import Path
 from .geometry_utils import format_millimetres
 
 INVALID_WINDOWS_FILENAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+FUSION_VERSION_SUFFIX = re.compile(r"\s+v\d+$", re.IGNORECASE)
 RESERVED_WINDOWS_NAMES = {
     "CON",
     "PRN",
@@ -99,7 +100,7 @@ def design_output_folder(output_folder: str, design_name: str) -> str:
     """Return a safe one-level Fusion-design subfolder path."""
 
     folder_name = sanitize_windows_filename(
-        design_name,
+        FUSION_VERSION_SUFFIX.sub("", design_name).rstrip(),
         fallback="Untitled Design",
     )
     return os.path.join(output_folder, folder_name)
