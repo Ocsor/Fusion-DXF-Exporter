@@ -124,8 +124,12 @@ Create a straight `4 mm` deep rebate open to one outside edge.
 
 - Analysis reports one front rebate at approximately `4 mm`.
 - The rebate boundary appears on `FRONT_REBATE_4MM`.
-- With the default `Rebate offset` of `0.3 mm`, every rebate edge is expanded
-  outward by `0.3 mm`.
+- With the default `Rebate offset` of `0.3 mm`, rebate edges touching
+  `CUT_OUTSIDE` extend outward by `5 mm`.
+- Every rebate edge not touching `CUT_OUTSIDE` expands outward by `0.3 mm`.
+- A rebate touching two outside edges receives two `5 mm` extensions.
+- A rebate touching three outside edges receives three `5 mm` extensions and
+  applies the configurable offset only to its remaining edge.
 - Setting `Rebate offset` to `0 mm` restores the exact detected rebate boundary.
 - `CUT_OUTSIDE` is sourced from the largest complete support-plane face.
 

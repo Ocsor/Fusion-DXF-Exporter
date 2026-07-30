@@ -35,9 +35,9 @@ Rear machining and uncertain boundaries remain review-only.
 - Measures pocket and rebate depth perpendicular to the front face.
 - Creates depth layers such as `FRONT_POCKET_6MM` and
   `FRONT_REBATE_4MM`, with an option to omit depth suffixes.
-- Expands detected rebate geometry outward by a configurable offset on every
-  edge. The default is `0.3 mm`; setting it to `0 mm` preserves the detected
-  rebate size.
+- Extends straight rebate edges that touch the outside profile by `5 mm`.
+  Remaining edges expand by the configurable rebate offset, defaulting to
+  `0.3 mm`. Setting the offset to `0 mm` preserves the detected rebate size.
 - Places each mitre guide on its angle-specific `MITRE_*DEG` layer, offset
   `0.5 mm` outward from the panel edge. Free endpoints extend `2 mm`; adjacent
   guides with the same mitre angle meet at their offset-line intersection
@@ -235,10 +235,12 @@ front outer boundary. A qualifying open-edge feature is classified as
 `FRONT_REBATE`. Angled, non-planar, multi-floor, and near-through features
 remain `UNKNOWN`.
 
-Before export, each connected `FRONT_REBATE` boundary is expanded outward by
-the `Rebate offset` command value. The default `0.3 mm` increases the boundary
-by `0.3 mm` on every edge. A value of `0 mm` exports the detected boundary
-without changing its size.
+Before export, each straight connected `FRONT_REBATE` boundary is compared with
+the `CUT_OUTSIDE` profile. Every rebate edge that lies on the outside profile
+is extended outward by `5 mm`. The other edges expand by the `Rebate offset`
+command value, which defaults to `0.3 mm`. A value of `0 mm` exports the
+detected boundary without changing its size. Curved rebate boundaries retain
+the uniform configurable offset.
 
 After confirming a pocket, each inner loop on its planar floor is inspected.
 If every adjacent nested wall reaches the rear support plane, that smaller

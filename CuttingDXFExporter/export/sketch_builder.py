@@ -19,6 +19,8 @@ PHASE_THREE_OPERATION_TYPES = (
 )
 DEFAULT_MITRE_OFFSET_INTERNAL = 0.05
 DEFAULT_REBATE_OFFSET_INTERNAL = 0.03
+REBATE_EDGE_EXTENSION_INTERNAL = 0.5
+REBATE_CONTACT_TOLERANCE_INTERNAL = 0.001
 MITRE_EXTENSION_INTERNAL = 0.2
 MITRE_ENDPOINT_TOLERANCE_INTERNAL = 0.001
 
@@ -170,58 +172,40 @@ def _prepare_rebate_geometry(
             or layer_name.startswith(f"{OperationType.FRONT_REBATE.value}_")
         )
     ]
+    outside_lines = [
+        line
+        for entity in sketch_set.entities[OperationType.CUT_OUTSIDE.value]
+        if (line := _sketch_line_points(entity)) is not None
+    ]
     for layer_name in rebate_layers:
         sketch = sketch_set.sketches[layer_name]
         source_entities = sketch_set.entities[layer_name]
         expanded_entities = []
         for connected_entities in _connected_curve_groups(sketch, source_entities):
-            minimum_x, minimum_y, maximum_x, maximum_y = _entity_bounds(
-                connected_entities
+            offset_segments = _directional_rebate_segments(
+                connected_entities,
+                outside_lines,
+                rebate_offset_internal,
             )
-            direction_margin = max(rebate_offset_internal * 2.0, 0.1)
-            direction_point = adsk.core.Point3D.create(
-                minimum_x - direction_margin,
-                (minimum_y + maximum_y) / 2.0,
-                0.0,
-            )
-            constraints = sketch.geometricConstraints
-            existing_constraint_count = constraints.count
-            offset_curves = list(
-                sketch.offset(
-                    _object_collection(connected_entities),
-                    direction_point,
+            if offset_segments is None:
+                offset_curves = _uniform_rebate_offset(
+                    sketch,
+                    connected_entities,
                     rebate_offset_internal,
+                    layer_name,
                 )
-            )
-            if not offset_curves:
-                raise RuntimeError(
-                    f"Fusion did not offset rebate geometry on {layer_name}."
-                )
-            added_constraints = [
-                constraints.item(index)
-                for index in range(existing_constraint_count, constraints.count)
-            ]
-            for constraint in reversed(added_constraints):
-                if getattr(constraint, "isDeletable", False):
-                    if not constraint.deleteMe():
+            else:
+                offset_curves = []
+                for start, end in offset_segments:
+                    offset_curve = sketch.sketchCurves.sketchLines.addByTwoPoints(
+                        adsk.core.Point3D.create(start[0], start[1], 0.0),
+                        adsk.core.Point3D.create(end[0], end[1], 0.0),
+                    )
+                    if not offset_curve:
                         raise RuntimeError(
-                            f"Could not detach rebate offset on {layer_name}."
+                            f"Fusion did not extend rebate geometry on {layer_name}."
                         )
-            if not all(getattr(curve, "isValid", True) for curve in offset_curves):
-                raise RuntimeError(
-                    f"Fusion invalidated rebate offset geometry on {layer_name}."
-                )
-            offset_bounds = _entity_bounds(offset_curves)
-            bounds_tolerance = 1e-9
-            if (
-                offset_bounds[0] > minimum_x + bounds_tolerance
-                or offset_bounds[1] > minimum_y + bounds_tolerance
-                or offset_bounds[2] < maximum_x - bounds_tolerance
-                or offset_bounds[3] < maximum_y - bounds_tolerance
-            ):
-                raise RuntimeError(
-                    f"Fusion offset rebate geometry inward on {layer_name}."
-                )
+                    offset_curves.append(offset_curve)
             for entity in connected_entities:
                 if not entity.deleteMe():
                     raise RuntimeError(
@@ -229,6 +213,227 @@ def _prepare_rebate_geometry(
                     )
             expanded_entities.extend(offset_curves)
         sketch_set.entities[layer_name] = expanded_entities
+
+
+def _directional_rebate_segments(
+    entities: Iterable[Any],
+    outside_lines: Iterable[
+        Tuple[Tuple[float, float], Tuple[float, float]]
+    ],
+    rebate_offset_internal: float,
+) -> Optional[List[Tuple[Tuple[float, float], Tuple[float, float]]]]:
+    vertices = _ordered_line_loop(entities)
+    if vertices is None:
+        return None
+    signed_area = sum(
+        start[0] * end[1] - end[0] * start[1]
+        for start, end in zip(vertices, vertices[1:] + vertices[:1])
+    )
+    if abs(signed_area) <= 1e-12:
+        return None
+    outside_lines = list(outside_lines)
+    offset_lines = []
+    for start, end in zip(vertices, vertices[1:] + vertices[:1]):
+        delta_x = end[0] - start[0]
+        delta_y = end[1] - start[1]
+        length = math.hypot(delta_x, delta_y)
+        if length <= 1e-12:
+            return None
+        if signed_area > 0.0:
+            normal_x = delta_y / length
+            normal_y = -delta_x / length
+        else:
+            normal_x = -delta_y / length
+            normal_y = delta_x / length
+        offset_distance = (
+            REBATE_EDGE_EXTENSION_INTERNAL
+            if _line_touches_outside((start, end), outside_lines)
+            else rebate_offset_internal
+        )
+        offset_lines.append(
+            (
+                (
+                    start[0] + normal_x * offset_distance,
+                    start[1] + normal_y * offset_distance,
+                ),
+                (
+                    end[0] + normal_x * offset_distance,
+                    end[1] + normal_y * offset_distance,
+                ),
+            )
+        )
+    offset_vertices = []
+    for index, line in enumerate(offset_lines):
+        previous_line = offset_lines[index - 1]
+        intersection = _line_intersection(previous_line, line)
+        if intersection is None:
+            return None
+        offset_vertices.append(intersection)
+    return list(
+        zip(offset_vertices, offset_vertices[1:] + offset_vertices[:1])
+    )
+
+
+def _ordered_line_loop(
+    entities: Iterable[Any],
+) -> Optional[List[Tuple[float, float]]]:
+    records = []
+    for entity in entities:
+        points = _sketch_line_points(entity)
+        if points is None:
+            return None
+        records.append(points)
+    if len(records) < 3:
+        return None
+    first_start, first_end = records.pop(0)
+    vertices = [first_start, first_end]
+    while records:
+        current = vertices[-1]
+        matching_index = None
+        next_point = None
+        for index, (start, end) in enumerate(records):
+            if _points_are_close(current, start):
+                matching_index = index
+                next_point = end
+                break
+            if _points_are_close(current, end):
+                matching_index = index
+                next_point = start
+                break
+        if matching_index is None or next_point is None:
+            return None
+        records.pop(matching_index)
+        vertices.append(next_point)
+    if not _points_are_close(vertices[-1], vertices[0]):
+        return None
+    return vertices[:-1]
+
+
+def _sketch_line_points(
+    entity: Any,
+) -> Optional[Tuple[Tuple[float, float], Tuple[float, float]]]:
+    sketch_line = adsk.fusion.SketchLine.cast(entity)
+    if not sketch_line:
+        return None
+    start = sketch_line.startSketchPoint.geometry
+    end = sketch_line.endSketchPoint.geometry
+    return (
+        (float(start.x), float(start.y)),
+        (float(end.x), float(end.y)),
+    )
+
+
+def _line_touches_outside(
+    line: Tuple[Tuple[float, float], Tuple[float, float]],
+    outside_lines: Iterable[
+        Tuple[Tuple[float, float], Tuple[float, float]]
+    ],
+) -> bool:
+    start, end = line
+    midpoint = (
+        (start[0] + end[0]) / 2.0,
+        (start[1] + end[1]) / 2.0,
+    )
+    return all(
+        any(
+            _point_on_segment(
+                point,
+                outside_line,
+                REBATE_CONTACT_TOLERANCE_INTERNAL,
+            )
+            for outside_line in outside_lines
+        )
+        for point in (start, midpoint, end)
+    )
+
+
+def _point_on_segment(
+    point: Tuple[float, float],
+    segment: Tuple[Tuple[float, float], Tuple[float, float]],
+    tolerance: float,
+) -> bool:
+    start, end = segment
+    delta_x = end[0] - start[0]
+    delta_y = end[1] - start[1]
+    length = math.hypot(delta_x, delta_y)
+    if length <= 1e-12:
+        return _points_are_close(point, start, tolerance)
+    relative_x = point[0] - start[0]
+    relative_y = point[1] - start[1]
+    perpendicular_distance = abs(
+        relative_x * delta_y - relative_y * delta_x
+    ) / length
+    if perpendicular_distance > tolerance:
+        return False
+    projection = (relative_x * delta_x + relative_y * delta_y) / length
+    return -tolerance <= projection <= length + tolerance
+
+
+def _points_are_close(
+    first: Tuple[float, float],
+    second: Tuple[float, float],
+    tolerance: float = REBATE_CONTACT_TOLERANCE_INTERNAL,
+) -> bool:
+    return math.hypot(
+        first[0] - second[0],
+        first[1] - second[1],
+    ) <= tolerance
+
+
+def _uniform_rebate_offset(
+    sketch: Any,
+    connected_entities: List[Any],
+    rebate_offset_internal: float,
+    layer_name: str,
+) -> List[Any]:
+    minimum_x, minimum_y, maximum_x, maximum_y = _entity_bounds(
+        connected_entities
+    )
+    direction_margin = max(rebate_offset_internal * 2.0, 0.1)
+    direction_point = adsk.core.Point3D.create(
+        minimum_x - direction_margin,
+        (minimum_y + maximum_y) / 2.0,
+        0.0,
+    )
+    constraints = sketch.geometricConstraints
+    existing_constraint_count = constraints.count
+    offset_curves = list(
+        sketch.offset(
+            _object_collection(connected_entities),
+            direction_point,
+            rebate_offset_internal,
+        )
+    )
+    if not offset_curves:
+        raise RuntimeError(
+            f"Fusion did not offset rebate geometry on {layer_name}."
+        )
+    added_constraints = [
+        constraints.item(index)
+        for index in range(existing_constraint_count, constraints.count)
+    ]
+    for constraint in reversed(added_constraints):
+        if getattr(constraint, "isDeletable", False):
+            if not constraint.deleteMe():
+                raise RuntimeError(
+                    f"Could not detach rebate offset on {layer_name}."
+                )
+    if not all(getattr(curve, "isValid", True) for curve in offset_curves):
+        raise RuntimeError(
+            f"Fusion invalidated rebate offset geometry on {layer_name}."
+        )
+    offset_bounds = _entity_bounds(offset_curves)
+    bounds_tolerance = 1e-9
+    if (
+        offset_bounds[0] > minimum_x + bounds_tolerance
+        or offset_bounds[1] > minimum_y + bounds_tolerance
+        or offset_bounds[2] < maximum_x - bounds_tolerance
+        or offset_bounds[3] < maximum_y - bounds_tolerance
+    ):
+        raise RuntimeError(
+            f"Fusion offset rebate geometry inward on {layer_name}."
+        )
+    return offset_curves
 
 
 def _connected_curve_groups(

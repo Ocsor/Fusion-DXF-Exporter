@@ -565,8 +565,8 @@ def _add_phase_three_export_options(inputs: adsk.core.CommandInputs) -> None:
     rebate_offset.minimumValue = 0.0
     rebate_offset.isMinimumInclusive = True
     rebate_offset.tooltip = (
-        "Outward expansion applied to every edge of detected rebate geometry. "
-        "Set to 0 mm to export the detected size unchanged."
+        "Edges touching the outside profile extend by 5 mm. Other rebate edges "
+        "use this offset. Set to 0 mm to export the detected size unchanged."
     )
 
 
