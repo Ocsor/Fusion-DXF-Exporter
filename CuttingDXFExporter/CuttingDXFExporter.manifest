@@ -1,0 +1,12 @@
+{
+  "autodeskProduct": "Fusion360",
+  "type": "addin",
+  "author": "Cutting DXF Exporter",
+  "description": {
+    "": "Analyses flat solid bodies before manufacturing DXF export."
+  },
+  "version": "0.3.9",
+  "runOnStartup": false,
+  "supportedOS": "windows",
+  "editEnabled": true
+}
