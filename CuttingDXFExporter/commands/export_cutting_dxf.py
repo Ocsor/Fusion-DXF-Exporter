@@ -8,10 +8,7 @@ import adsk.core
 import adsk.fusion
 
 from ..analysis.body_analyser import analyse_body
-from ..export.dxf_exporter import (
-    detect_dxf_sketch_export_support,
-    export_phase_three_body,
-)
+from ..export.dxf_exporter import export_phase_three_body
 from ..models.analysis_models import BodyAnalysis, ExportResult
 from ..utilities.file_utils import (
     default_output_folder,
@@ -154,20 +151,6 @@ class CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
             )
             inputs = command.commandInputs
 
-            introduction = inputs.addTextBoxCommandInput(
-                "phase_notice",
-                "",
-                (
-                    "<b>Phase 4:</b> exports outside profiles, through-cuts, "
-                    "front machining, optional rear machining, and full-thickness "
-                    "planar mitre guides. Review all detected operations before "
-                    "export."
-                ),
-                3,
-                True,
-            )
-            introduction.isFullWidth = True
-
             bodies = inputs.addSelectionInput(
                 BODY_INPUT_ID,
                 "Solid bodies",
@@ -223,20 +206,6 @@ class CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
             )
             tolerance.minimumValue = 0.000001
             tolerance.isMinimumInclusive = True
-
-            design = active_design()
-            supported, support_message = detect_dxf_sketch_export_support(design)
-            capability = inputs.addTextBoxCommandInput(
-                "dxf_api_status",
-                "DXF export API",
-                (
-                    f"{'Available' if supported else 'Unavailable'}: "
-                    f"{support_message}"
-                ),
-                2,
-                True,
-            )
-            capability.isFullWidth = True
 
             input_changed_handler = InputChangedHandler()
             validate_handler = ValidateInputsHandler()
@@ -510,21 +479,10 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
 
 
 def _add_phase_three_export_options(inputs: adsk.core.CommandInputs) -> None:
-    notice = inputs.addTextBoxCommandInput(
-        "export_options_notice",
-        "Export options",
-        (
-            "Phase 4 exports confirmed front and optional rear machining plus "
-            "MITRE guide lines. UNKNOWN geometry remains disabled."
-        ),
-        2,
-        True,
-    )
-    notice.isFullWidth = True
     definitions = (
         ("one_dxf_per_body", "One DXF per body", True, False),
         (INCLUDE_FRONT_INPUT_ID, "Include front machining", True, True),
-        (INCLUDE_REAR_INPUT_ID, "Include rear machining", False, True),
+        (INCLUDE_REAR_INPUT_ID, "Include rear machining", True, True),
         (
             DELETE_TEMP_INPUT_ID,
             "Delete temporary sketches after export",
