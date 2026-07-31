@@ -373,34 +373,40 @@ def _detect_front_rebates(
             if floor_key in seen_floor_keys:
                 continue
             seen_floor_keys.add(floor_key)
-            floor_loop = _single_outer_loop(floor_face)
-            if not floor_loop:
+            floor_loops = list(
+                enumerate(iter_fusion_collection(floor_face.loops))
+            )
+            if not floor_loops:
                 continue
-            boundary = _geometry_loop(floor_loop[1], floor_loop[0])
             if not _is_supported_vertical_wall(
                 wall_face,
                 front_normal,
                 angular_tolerance_radians,
             ):
+                for loop_index, floor_loop in floor_loops:
+                    operations.append(
+                        _unknown_operation(
+                            _geometry_loop(floor_loop, loop_index),
+                            (
+                                "A possible front rebate has an angled or "
+                                "unsupported wall."
+                            ),
+                            source_faces=[floor_face],
+                        )
+                    )
+                continue
+            depth_mm = internal_length_to_mm(depth_internal)
+            for loop_index, floor_loop in floor_loops:
                 operations.append(
-                    _unknown_operation(
-                        boundary,
-                        "A possible front rebate has an angled or unsupported wall.",
+                    _operation(
+                        OperationType.FRONT_REBATE,
+                        OperationSide.FRONT,
+                        _geometry_loop(floor_loop, loop_index),
+                        depth_internal=depth_internal,
+                        depth_mm=depth_mm,
                         source_faces=[floor_face],
                     )
                 )
-                continue
-            depth_mm = internal_length_to_mm(depth_internal)
-            operations.append(
-                _operation(
-                    OperationType.FRONT_REBATE,
-                    OperationSide.FRONT,
-                    boundary,
-                    depth_internal=depth_internal,
-                    depth_mm=depth_mm,
-                    source_faces=[floor_face],
-                )
-            )
     return operations
 
 
@@ -537,15 +543,6 @@ def _face_touches_any_face(face: Any, target_faces: Iterable[Any]) -> bool:
             ):
                 return True
     return False
-
-
-def _single_outer_loop(face: Any) -> Optional[Tuple[int, Any]]:
-    outer_loops = [
-        (index, loop)
-        for index, loop in enumerate(iter_fusion_collection(face.loops))
-        if loop.isOuter
-    ]
-    return outer_loops[0] if len(outer_loops) == 1 else None
 
 
 def _operation(

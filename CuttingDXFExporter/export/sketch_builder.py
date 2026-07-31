@@ -197,11 +197,27 @@ def _prepare_rebate_geometry(
         sketch = sketch_set.sketches[layer_name]
         source_entities = sketch_set.entities[layer_name]
         expanded_entities = []
-        for connected_entities in _connected_curve_groups(sketch, source_entities):
+        connected_groups = _connected_curve_groups(sketch, source_entities)
+        line_loops = [
+            _ordered_line_loop(connected_entities)
+            for connected_entities in connected_groups
+        ]
+        group_bounds = [
+            _entity_bounds(connected_entities)
+            for connected_entities in connected_groups
+        ]
+        for group_index, connected_entities in enumerate(connected_groups):
+            offset_inward = _loop_is_nested(
+                line_loops[group_index],
+                line_loops,
+                group_bounds,
+                group_index,
+            )
             offset_segments = _directional_rebate_segments(
                 connected_entities,
                 outside_lines,
                 rebate_offset_internal,
+                offset_inward,
             )
             if offset_segments is None:
                 offset_curves = _uniform_rebate_offset(
@@ -209,6 +225,7 @@ def _prepare_rebate_geometry(
                     connected_entities,
                     rebate_offset_internal,
                     layer_name,
+                    offset_inward,
                 )
             else:
                 offset_curves = []
@@ -237,6 +254,7 @@ def _directional_rebate_segments(
         Tuple[Tuple[float, float], Tuple[float, float]]
     ],
     rebate_offset_internal: float,
+    offset_inward: bool = False,
 ) -> Optional[List[Tuple[Tuple[float, float], Tuple[float, float]]]]:
     vertices = _ordered_line_loop(entities)
     if vertices is None:
@@ -264,7 +282,11 @@ def _directional_rebate_segments(
         offset_distance = (
             REBATE_EDGE_EXTENSION_INTERNAL
             if _line_touches_outside((start, end), outside_lines)
-            else rebate_offset_internal
+            else (
+                -rebate_offset_internal
+                if offset_inward
+                else rebate_offset_internal
+            )
         )
         offset_lines.append(
             (
@@ -288,6 +310,72 @@ def _directional_rebate_segments(
     return list(
         zip(offset_vertices, offset_vertices[1:] + offset_vertices[:1])
     )
+
+
+def _loop_is_nested(
+    vertices: Optional[List[Tuple[float, float]]],
+    all_loops: List[Optional[List[Tuple[float, float]]]],
+    all_bounds: List[Tuple[float, float, float, float]],
+    loop_index: int,
+) -> bool:
+    current_bounds = all_bounds[loop_index]
+    test_point = vertices[0] if vertices else (
+        (current_bounds[0] + current_bounds[2]) / 2.0,
+        (current_bounds[1] + current_bounds[3]) / 2.0,
+    )
+    containing_loop_count = sum(
+        1
+        for candidate_index, candidate_vertices in enumerate(all_loops)
+        if (
+            candidate_index != loop_index
+            and (
+                _point_in_polygon(test_point, candidate_vertices)
+                if candidate_vertices
+                else _bounds_contain(all_bounds[candidate_index], current_bounds)
+            )
+        )
+    )
+    return containing_loop_count % 2 == 1
+
+
+def _bounds_contain(
+    outer: Tuple[float, float, float, float],
+    inner: Tuple[float, float, float, float],
+) -> bool:
+    tolerance = 1e-9
+    contains = (
+        outer[0] <= inner[0] + tolerance
+        and outer[1] <= inner[1] + tolerance
+        and outer[2] >= inner[2] - tolerance
+        and outer[3] >= inner[3] - tolerance
+    )
+    strictly_larger = (
+        outer[0] < inner[0] - tolerance
+        or outer[1] < inner[1] - tolerance
+        or outer[2] > inner[2] + tolerance
+        or outer[3] > inner[3] + tolerance
+    )
+    return contains and strictly_larger
+
+
+def _point_in_polygon(
+    point: Tuple[float, float],
+    vertices: List[Tuple[float, float]],
+) -> bool:
+    point_x, point_y = point
+    inside = False
+    for start, end in zip(vertices, vertices[1:] + vertices[:1]):
+        if (start[1] > point_y) == (end[1] > point_y):
+            continue
+        intersection_x = (
+            (end[0] - start[0])
+            * (point_y - start[1])
+            / (end[1] - start[1])
+            + start[0]
+        )
+        if point_x < intersection_x:
+            inside = not inside
+    return inside
 
 
 def _ordered_line_loop(
@@ -401,16 +489,24 @@ def _uniform_rebate_offset(
     connected_entities: List[Any],
     rebate_offset_internal: float,
     layer_name: str,
+    offset_inward: bool = False,
 ) -> List[Any]:
     minimum_x, minimum_y, maximum_x, maximum_y = _entity_bounds(
         connected_entities
     )
-    direction_margin = max(rebate_offset_internal * 2.0, 0.1)
-    direction_point = adsk.core.Point3D.create(
-        minimum_x - direction_margin,
-        (minimum_y + maximum_y) / 2.0,
-        0.0,
-    )
+    if offset_inward:
+        direction_point = adsk.core.Point3D.create(
+            (minimum_x + maximum_x) / 2.0,
+            (minimum_y + maximum_y) / 2.0,
+            0.0,
+        )
+    else:
+        direction_margin = max(rebate_offset_internal * 2.0, 0.1)
+        direction_point = adsk.core.Point3D.create(
+            minimum_x - direction_margin,
+            (minimum_y + maximum_y) / 2.0,
+            0.0,
+        )
     constraints = sketch.geometricConstraints
     existing_constraint_count = constraints.count
     offset_curves = list(
@@ -440,14 +536,22 @@ def _uniform_rebate_offset(
         )
     offset_bounds = _entity_bounds(offset_curves)
     bounds_tolerance = 1e-9
-    if (
-        offset_bounds[0] > minimum_x + bounds_tolerance
-        or offset_bounds[1] > minimum_y + bounds_tolerance
-        or offset_bounds[2] < maximum_x - bounds_tolerance
-        or offset_bounds[3] < maximum_y - bounds_tolerance
-    ):
+    offset_moved_wrong_way = (
+        offset_bounds[0] < minimum_x - bounds_tolerance
+        or offset_bounds[1] < minimum_y - bounds_tolerance
+        or offset_bounds[2] > maximum_x + bounds_tolerance
+        or offset_bounds[3] > maximum_y + bounds_tolerance
+        if offset_inward
+        else (
+            offset_bounds[0] > minimum_x + bounds_tolerance
+            or offset_bounds[1] > minimum_y + bounds_tolerance
+            or offset_bounds[2] < maximum_x - bounds_tolerance
+            or offset_bounds[3] < maximum_y - bounds_tolerance
+        )
+    )
+    if offset_moved_wrong_way:
         raise RuntimeError(
-            f"Fusion offset rebate geometry inward on {layer_name}."
+            f"Fusion offset rebate geometry the wrong way on {layer_name}."
         )
     return offset_curves
 

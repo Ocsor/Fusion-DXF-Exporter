@@ -133,7 +133,22 @@ Create a straight `4 mm` deep rebate open to one outside edge.
 - Setting `Rebate offset` to `0 mm` restores the exact detected rebate boundary.
 - `CUT_OUTSIDE` is sourced from the largest complete support-plane face.
 
-## 8A. Rear Pocket and Rebate Export
+## 8A. Four-Edge Front Rebate
+
+Create a rectangular panel with one continuous rebate around all four outside
+edges, leaving a raised rectangular centre.
+
+### Expected Result
+
+- The rebate layer contains both the outer and inner floor boundaries.
+- The outer boundary extends `5 mm` beyond all four `CUT_OUTSIDE` edges.
+- With the default offset, the inner boundary moves `0.3 mm` toward the raised
+  centre, increasing the represented rebate width.
+- The inner boundary is not discarded when all four outer edges touch the
+  outside profile.
+- Setting `Rebate offset` to `0 mm` keeps the detected inner boundary unchanged.
+
+## 8B. Rear Pocket and Rebate Export
 
 Create a panel with a `6 mm` pocket and a `4 mm` edge rebate machined from the
 rear face. Select the intended front face manually so the machining remains on

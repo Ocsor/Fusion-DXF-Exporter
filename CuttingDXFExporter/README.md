@@ -273,7 +273,10 @@ compared with the `CUT_OUTSIDE` profile. Every rebate edge that lies on the
 outside profile is extended outward by `5 mm`. The other edges expand by the
 `Rebate offset` command value, which defaults to `0.3 mm`. A value of `0 mm`
 exports the detected boundary without changing its size. Curved rebate
-boundaries retain the uniform configurable offset.
+boundaries retain the uniform configurable offset. When a rebate surrounds the
+entire panel, every floor loop is retained: the outer boundary receives the
+`5 mm` extension and the nested inner boundary moves inward by the configurable
+offset so the actual rebate width remains represented in the DXF.
 
 After confirming a pocket, each inner loop on its planar floor is inspected.
 If every adjacent nested wall reaches the rear support plane, that smaller
