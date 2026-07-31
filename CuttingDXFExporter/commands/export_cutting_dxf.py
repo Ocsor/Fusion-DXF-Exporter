@@ -151,14 +151,6 @@ class CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
             )
             inputs = command.commandInputs
 
-            bodies = inputs.addSelectionInput(
-                BODY_INPUT_ID,
-                "Solid bodies",
-                "Select one or more finished solid B-Rep bodies.",
-            )
-            bodies.addSelectionFilter("SolidBodies")
-            bodies.setSelectionLimits(1, 0)
-
             output_folder = inputs.addStringValueInput(
                 OUTPUT_FOLDER_INPUT_ID,
                 "Output folder",
@@ -179,24 +171,131 @@ class CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
                 False,
             )
 
+            filename = inputs.addStringValueInput(
+                FILENAME_INPUT_ID,
+                "Filename format",
+                "{component}_{body}",
+            )
+            filename.tooltip = "Supported fields: {component} and {body}."
+
+            inputs.addBoolValueInput(
+                OPEN_FOLDER_INPUT_ID,
+                "Open output folder",
+                True,
+                "",
+                False,
+            )
+            inputs.addBoolValueInput(
+                DEPTH_LAYERS_INPUT_ID,
+                "Include detected depth in layer names",
+                True,
+                "",
+                True,
+            )
+
             face_mode = inputs.addDropDownCommandInput(
                 FACE_MODE_INPUT_ID,
                 "Face-selection mode",
                 adsk.core.DropDownStyles.TextListDropDownStyle,
             )
             for index, mode in enumerate(FACE_MODES):
-                face_mode.listItems.add(mode, index == 0)
+                face_mode.listItems.add(mode, index == 1)
+
+            inputs.addBoolValueInput(
+                INCLUDE_FRONT_INPUT_ID,
+                "Include front",
+                True,
+                "",
+                True,
+            )
+            inputs.addBoolValueInput(
+                INCLUDE_REAR_INPUT_ID,
+                "Include back",
+                True,
+                "",
+                True,
+            )
+            one_dxf = inputs.addBoolValueInput(
+                "one_dxf_per_body",
+                "One DXF per body",
+                True,
+                "",
+                True,
+            )
+            one_dxf.isEnabled = False
+
+            bodies = inputs.addSelectionInput(
+                BODY_INPUT_ID,
+                "Solid bodies",
+                "Select one or more finished solid B-Rep bodies.",
+            )
+            bodies.addSelectionFilter("SolidBodies")
+            bodies.setSelectionLimits(1, 0)
 
             manual_faces = inputs.addSelectionInput(
                 MANUAL_FACE_INPUT_ID,
-                "Manual front faces",
+                "Manual faces",
                 "Select one planar front face for every selected body.",
             )
             manual_faces.addSelectionFilter("PlanarFaces")
             manual_faces.setSelectionLimits(0, 0)
-            manual_faces.isVisible = False
+            manual_faces.isVisible = True
 
-            _add_phase_three_export_options(inputs)
+            inputs.addBoolValueInput(
+                DELETE_TEMP_INPUT_ID,
+                "Delete temporary sketches",
+                True,
+                "",
+                True,
+            )
+            inputs.addBoolValueInput(
+                WRITE_CSV_INPUT_ID,
+                "Write CSV",
+                True,
+                "",
+                False,
+            )
+            inputs.addBoolValueInput(
+                WRITE_JSON_INPUT_ID,
+                "Write JSON",
+                True,
+                "",
+                False,
+            )
+            include_unknown = inputs.addBoolValueInput(
+                "include_unknown",
+                "Include unknown geometry",
+                True,
+                "",
+                False,
+            )
+            include_unknown.isEnabled = False
+            include_unknown.isVisible = False
+
+            mitre_offset = inputs.addValueInput(
+                MITRE_OFFSET_INPUT_ID,
+                "Mitre Guide Offset",
+                "mm",
+                adsk.core.ValueInput.createByString("0.5 mm"),
+            )
+            mitre_offset.minimumValue = 0.0
+            mitre_offset.isMinimumInclusive = True
+            mitre_offset.tooltip = (
+                "Outward distance from each detected mitre edge to its MITRE guide."
+            )
+            rebate_offset = inputs.addValueInput(
+                REBATE_OFFSET_INPUT_ID,
+                "Rebate Offset",
+                "mm",
+                adsk.core.ValueInput.createByString("0.3 mm"),
+            )
+            rebate_offset.minimumValue = 0.0
+            rebate_offset.isMinimumInclusive = True
+            rebate_offset.tooltip = (
+                "Edges touching the outside profile extend by 5 mm. Other rebate "
+                "edges use this offset. Set to 0 mm to export the detected size "
+                "unchanged."
+            )
 
             tolerance = inputs.addValueInput(
                 TOLERANCE_INPUT_ID,
@@ -206,6 +305,7 @@ class CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
             )
             tolerance.minimumValue = 0.000001
             tolerance.isMinimumInclusive = True
+            tolerance.isVisible = False
 
             input_changed_handler = InputChangedHandler()
             validate_handler = ValidateInputsHandler()
@@ -321,7 +421,7 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
             body_input = command_inputs.itemById(BODY_INPUT_ID)
             bodies = selected_bodies(body_input)
             mode_input = command_inputs.itemById(FACE_MODE_INPUT_ID)
-            mode = mode_input.selectedItem.name if mode_input.selectedItem else FACE_MODES[0]
+            mode = mode_input.selectedItem.name if mode_input.selectedItem else FACE_MODES[1]
             manual_input = command_inputs.itemById(MANUAL_FACE_INPUT_ID)
             tolerance_internal = command_inputs.itemById(TOLERANCE_INPUT_ID).value
 
@@ -476,62 +576,6 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
             show_error(ui, "Cutting DXF Exporter", error)
         finally:
             finish_session(logger, outcome)
-
-
-def _add_phase_three_export_options(inputs: adsk.core.CommandInputs) -> None:
-    definitions = (
-        ("one_dxf_per_body", "One DXF per body", True, False),
-        (INCLUDE_FRONT_INPUT_ID, "Include front machining", True, True),
-        (INCLUDE_REAR_INPUT_ID, "Include rear machining", True, True),
-        (
-            DELETE_TEMP_INPUT_ID,
-            "Delete temporary sketches after export",
-            True,
-            True,
-        ),
-        (WRITE_CSV_INPUT_ID, "Write analysis CSV", False, True),
-        (WRITE_JSON_INPUT_ID, "Write diagnostic JSON", False, True),
-        (OPEN_FOLDER_INPUT_ID, "Open output folder after export", False, True),
-        ("include_unknown", "Include unknown geometry", False, False),
-        (
-            DEPTH_LAYERS_INPUT_ID,
-            "Include detected depth in layer names",
-            True,
-            True,
-        ),
-    )
-    for input_id, label, value, enabled in definitions:
-        option = inputs.addBoolValueInput(input_id, label, True, "", value)
-        option.isEnabled = enabled
-    filename = inputs.addStringValueInput(
-        FILENAME_INPUT_ID,
-        "Filename format",
-        "{component}_{body}",
-    )
-    filename.tooltip = "Supported fields: {component} and {body}."
-    mitre_offset = inputs.addValueInput(
-        MITRE_OFFSET_INPUT_ID,
-        "Mitre guide offset",
-        "mm",
-        adsk.core.ValueInput.createByString("0.5 mm"),
-    )
-    mitre_offset.minimumValue = 0.0
-    mitre_offset.isMinimumInclusive = True
-    mitre_offset.tooltip = (
-        "Outward distance from each detected mitre edge to its MITRE guide."
-    )
-    rebate_offset = inputs.addValueInput(
-        REBATE_OFFSET_INPUT_ID,
-        "Rebate offset",
-        "mm",
-        adsk.core.ValueInput.createByString("0.3 mm"),
-    )
-    rebate_offset.minimumValue = 0.0
-    rebate_offset.isMinimumInclusive = True
-    rebate_offset.tooltip = (
-        "Edges touching the outside profile extend by 5 mm. Other rebate edges "
-        "use this offset. Set to 0 mm to export the detected size unchanged."
-    )
 
 
 def _format_export_summary(

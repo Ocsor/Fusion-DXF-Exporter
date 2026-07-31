@@ -38,7 +38,7 @@ Uncertain boundaries remain review-only.
   `FRONT_REBATE_4MM`, with an option to omit depth suffixes.
 - Classifies confirmed rear pockets and rebates onto depth layers such as
   `BACK_POCKET_6MM` and `BACK_REBATE_4MM`.
-- Provides an `Include rear machining` option. Rear geometry is projected onto
+- Provides an `Include back` option. Rear geometry is projected onto
   the front manufacturing plane and appears as seen through from the front.
 - Extends straight rebate edges that touch the outside profile by `5 mm`.
   Remaining edges expand by the configurable rebate offset, defaulting to

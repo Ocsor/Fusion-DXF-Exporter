@@ -142,8 +142,8 @@ the rear side.
 ### Expected Result
 
 - Analysis reports `BACK_POCKET_6MM` and `BACK_REBATE_4MM`.
-- With `Include rear machining` cleared, neither rear layer is in the DXF.
-- With `Include rear machining` selected, both rear layers are in the DXF.
+- With `Include back` cleared, neither rear layer is in the DXF.
+- With `Include back` selected, both rear layers are in the DXF.
 - Rear geometry appears as seen through the panel from the selected front view.
 - The rear rebate uses the same `5 mm` touching-edge extension and configurable
   offset as a front rebate.
