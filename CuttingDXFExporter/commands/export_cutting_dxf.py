@@ -8,7 +8,10 @@ import adsk.core
 import adsk.fusion
 
 from ..analysis.body_analyser import analyse_body
-from ..export.dxf_exporter import export_phase_three_body
+from ..export.dxf_exporter import (
+    export_phase_four_bodies_combined,
+    export_phase_three_body,
+)
 from ..models.analysis_models import BodyAnalysis, ExportResult
 from ..utilities.file_utils import (
     default_output_folder,
@@ -60,6 +63,7 @@ FILENAME_INPUT_ID = "filename_format"
 OPEN_FOLDER_INPUT_ID = "open_folder"
 INCLUDE_FRONT_INPUT_ID = "include_front"
 INCLUDE_REAR_INPUT_ID = "include_rear"
+ONE_DXF_PER_BODY_INPUT_ID = "one_dxf_per_body"
 WRITE_CSV_INPUT_ID = "write_csv"
 WRITE_JSON_INPUT_ID = "write_json"
 DEPTH_LAYERS_INPUT_ID = "depth_layers"
@@ -216,13 +220,17 @@ class CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
                 True,
             )
             one_dxf = inputs.addBoolValueInput(
-                "one_dxf_per_body",
+                ONE_DXF_PER_BODY_INPUT_ID,
                 "One DXF per body",
                 True,
                 "",
                 True,
             )
-            one_dxf.isEnabled = False
+            one_dxf.isEnabled = True
+            one_dxf.tooltip = (
+                "Uncheck to arrange all selected bodies left-to-right in one "
+                "combined DXF."
+            )
 
             bodies = inputs.addSelectionInput(
                 BODY_INPUT_ID,
@@ -493,6 +501,9 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
             include_rear_machining = command_inputs.itemById(
                 INCLUDE_REAR_INPUT_ID
             ).value
+            one_dxf_per_body = command_inputs.itemById(
+                ONE_DXF_PER_BODY_INPUT_ID
+            ).value
             include_depth_in_layer_names = command_inputs.itemById(
                 DEPTH_LAYERS_INPUT_ID
             ).value
@@ -502,12 +513,33 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
             rebate_offset_internal = command_inputs.itemById(
                 REBATE_OFFSET_INPUT_ID
             ).value
-            export_results = []
-            for body, analysis in zip(bodies, analyses):
-                export_result = export_phase_three_body(
+            if one_dxf_per_body:
+                export_results = []
+                for body, analysis in zip(bodies, analyses):
+                    export_result = export_phase_three_body(
+                        design=design,
+                        body=body,
+                        analysis=analysis,
+                        output_folder=output_folder,
+                        filename_template=filename_template,
+                        include_front_machining=include_front_machining,
+                        include_rear_machining=include_rear_machining,
+                        include_depth_in_layer_names=include_depth_in_layer_names,
+                        mitre_offset_internal=mitre_offset_internal,
+                        rebate_offset_internal=rebate_offset_internal,
+                        delete_temporary_sketches=delete_temporary_sketches,
+                        logger=logger,
+                    )
+                    export_results.append(export_result)
+                    logger.info(
+                        "Export result=%s",
+                        json.dumps(export_result.to_dict(), ensure_ascii=False),
+                    )
+            else:
+                export_results = export_phase_four_bodies_combined(
                     design=design,
-                    body=body,
-                    analysis=analysis,
+                    bodies=bodies,
+                    analyses=analyses,
                     output_folder=output_folder,
                     filename_template=filename_template,
                     include_front_machining=include_front_machining,
@@ -518,11 +550,11 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
                     delete_temporary_sketches=delete_temporary_sketches,
                     logger=logger,
                 )
-                export_results.append(export_result)
-                logger.info(
-                    "Export result=%s",
-                    json.dumps(export_result.to_dict(), ensure_ascii=False),
-                )
+                for export_result in export_results:
+                    logger.info(
+                        "Combined export result=%s",
+                        json.dumps(export_result.to_dict(), ensure_ascii=False),
+                    )
 
             report_paths = []
             report_errors = []

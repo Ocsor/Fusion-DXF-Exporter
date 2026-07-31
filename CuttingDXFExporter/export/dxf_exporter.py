@@ -2,7 +2,7 @@
 
 import logging
 import os
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..models.analysis_models import (
     AnalysisWarning,
@@ -17,7 +17,7 @@ from ..utilities.file_utils import (
     render_body_filename,
     unique_path,
 )
-from .dxf_postprocessor import merge_category_dxfs
+from .dxf_postprocessor import merge_body_category_dxfs, merge_category_dxfs
 from .sketch_builder import (
     TemporarySketchSet,
     build_phase_three_sketches,
@@ -183,6 +183,151 @@ def export_phase_three_body(
             result.temporary_sketches_cleaned = False
             logger.info("Temporary sketch deletion was disabled by the operator.")
     return result
+
+
+def export_phase_four_bodies_combined(
+    design: Any,
+    bodies: Sequence[Any],
+    analyses: Sequence[BodyAnalysis],
+    output_folder: str,
+    filename_template: str,
+    include_front_machining: bool,
+    include_rear_machining: bool,
+    include_depth_in_layer_names: bool,
+    mitre_offset_internal: float,
+    rebate_offset_internal: float,
+    delete_temporary_sketches: bool,
+    logger: logging.Logger,
+) -> List[ExportResult]:
+    """Export selected bodies side-by-side in one layered DXF."""
+
+    bodies = list(bodies)
+    analyses = list(analyses)
+    if not bodies or len(bodies) != len(analyses):
+        raise ValueError("Combined export requires one analysis per selected body.")
+    filename = render_body_filename(
+        filename_template,
+        "Combined",
+        "Selected_Bodies",
+    )
+    output_path = os.path.join(output_folder, f"{filename}.dxf")
+    results = [
+        ExportResult(body_token=analysis.body_token, output_path=output_path)
+        for analysis in analyses
+    ]
+    category_sets: List[Dict[str, str]] = []
+    sketch_sets: List[Tuple[ExportResult, TemporarySketchSet]] = []
+    category_paths: List[str] = []
+    try:
+        supported, message = detect_dxf_sketch_export_support(design)
+        if not supported:
+            raise RuntimeError(message)
+        invalid_bodies = [
+            analysis.body_name
+            for analysis in analyses
+            if not _analysis_is_exportable(analysis)
+        ]
+        if invalid_bodies:
+            raise RuntimeError(
+                "Bodies failed the manufacturing checks: "
+                + ", ".join(invalid_bodies)
+            )
+
+        export_manager = design.exportManager
+        for body_index, (body, analysis, result) in enumerate(
+            zip(bodies, analyses, results),
+            start=1,
+        ):
+            sketch_set = TemporarySketchSet()
+            sketch_sets.append((result, sketch_set))
+            build_phase_three_sketches(
+                design,
+                body,
+                analysis,
+                include_front_machining,
+                include_rear_machining,
+                include_depth_in_layer_names,
+                mitre_offset_internal=mitre_offset_internal,
+                rebate_offset_internal=rebate_offset_internal,
+                sketch_set=sketch_set,
+            )
+            body_category_paths = {}
+            for layer_name, sketch in sketch_set.sketches.items():
+                category_path = unique_path(
+                    os.path.join(
+                        output_folder,
+                        (
+                            f"{filename}.__fusion_body_{body_index}_"
+                            f"{layer_name}.dxf"
+                        ),
+                    )
+                )
+                _export_sketch(export_manager, sketch, category_path)
+                body_category_paths[layer_name] = category_path
+                category_paths.append(category_path)
+            category_sets.append(body_category_paths)
+            result.exported_operation_count = sum(
+                len(operations)
+                for operations in _exported_operations_by_layer(
+                    analysis,
+                    include_front_machining,
+                    include_rear_machining,
+                    include_depth_in_layer_names,
+                ).values()
+            )
+
+        merge_result = merge_body_category_dxfs(
+            category_sets,
+            output_path,
+            markup_text=os.path.basename(output_path),
+        )
+        for result in results:
+            result.succeeded = True
+        logger.info(
+            "Combined DXF path=%s bodies=%d entity_counts=%s",
+            output_path,
+            len(bodies),
+            merge_result.entity_counts,
+        )
+        for category_path in category_paths:
+            try:
+                os.remove(category_path)
+            except OSError as error:
+                results[0].warnings.append(
+                    AnalysisWarning(
+                        code="CATEGORY_BACKUP_CLEANUP_FAILED",
+                        message=f"Could not remove {category_path}: {error}",
+                        severity=WarningSeverity.WARNING,
+                        requires_review=False,
+                    )
+                )
+    except Exception as error:
+        backup_paths = [
+            path for path in category_paths
+            if os.path.isfile(path)
+        ]
+        for result in results:
+            result.error_message = str(error)
+            result.backup_paths = list(backup_paths)
+        logger.exception("Combined Phase 4 DXF export failed.")
+    finally:
+        for result, sketch_set in sketch_sets:
+            if delete_temporary_sketches:
+                cleanup_errors = cleanup_temporary_sketches(sketch_set)
+                result.temporary_sketches_cleaned = not cleanup_errors
+                for cleanup_error in cleanup_errors:
+                    result.warnings.append(
+                        AnalysisWarning(
+                            code="TEMPORARY_SKETCH_CLEANUP_FAILED",
+                            message=cleanup_error,
+                            severity=WarningSeverity.WARNING,
+                            requires_review=True,
+                        )
+                    )
+                    logger.error(cleanup_error)
+            else:
+                result.temporary_sketches_cleaned = False
+    return results
 
 
 def _exported_operations_by_layer(

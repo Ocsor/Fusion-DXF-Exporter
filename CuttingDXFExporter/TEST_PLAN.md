@@ -187,10 +187,18 @@ hole to one body.
 ### Expected Result
 
 - The review contains a separate section for each body.
-- Two final DXFs are created.
+- With `One DXF per body` checked, two final DXFs are created.
 - Each body uses its own thickness and geometry.
 - The hole appears only in the relevant body's `CUT_INSIDE` layer.
 - Failure of one body does not prevent the other from exporting.
+
+Clear `One DXF per body` and export the same selection again.
+
+- One `Combined_Selected_Bodies.dxf` is created in the design folder.
+- Both outside profiles appear on `CUT_OUTSIDE`.
+- The bodies are arranged left-to-right with a `10 mm` gap.
+- The hole remains on `CUT_INSIDE` and aligned with its source body.
+- No material or thickness suffix is added to the combined filename.
 
 ## 12. Manual Face Validation
 
@@ -332,7 +340,23 @@ Set `Mitre guide offset` to `1 mm` and export again.
 - The final DXF contains a `markups` layer with one centred text entity.
 - The text exactly matches the final DXF filename, including `.dxf`.
 
-## 21. Load and Unload
+## 21. Duplicate Component Occurrences
+
+1. Create a component named `Speaker_Table_Legs` containing at least one body.
+2. Insert or duplicate it so the browser shows `Speaker_Table_Legs:1` and
+   `Speaker_Table_Legs:2`.
+3. Select the equivalent body from both occurrences.
+4. Export using `{component}_{body}` with `One DXF per body` checked.
+
+### Expected Result
+
+- Both occurrences produce a DXF.
+- The filenames contain `Speaker_Table_Legs_1` and `Speaker_Table_Legs_2`.
+- The colon is replaced with an underscore for Windows compatibility.
+- Neither occurrence overwrites the other occurrence's DXF.
+- Native, non-occurrence bodies continue to use their component name.
+
+## 22. Load and Unload
 
 1. Start the add-in twice.
 2. Confirm only one toolbar control exists.

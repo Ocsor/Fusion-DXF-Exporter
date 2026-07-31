@@ -56,6 +56,10 @@ Uncertain boundaries remain review-only.
   filename match the new export.
 - Requires a Yes/No operator confirmation after showing the analysis.
 - Creates separate temporary sketches for every required operation/depth layer.
+- Exports one material/thickness-specific DXF per body when `One DXF per body`
+  is checked.
+- When unchecked, combines all selected bodies into one layered DXF, arranged
+  left-to-right with a `10 mm` gap.
 - Uses `Sketch.project2(..., False)` where available to preserve lines, circles,
   arcs, ellipses, and splines as native sketch curves.
 - Uses the stable face X axis, then moves the outside-profile minimum to `0,0`.
@@ -141,8 +145,7 @@ For development, keep the folder anywhere and use the `+` command in
 5. Choose the front-face mode.
 6. Set a filename format using `{component}` and `{body}`.
    The detected thickness suffix is added automatically.
-7. Leave the analysis tolerance at `0.01 mm` unless a justified model
-   tolerance requires another value.
+7. Choose whether to create one DXF per body or one combined DXF.
 8. Choose whether to include front machining, rear machining, and
    depth-specific layer names.
 9. Optionally enable CSV and diagnostic JSON reports.
@@ -161,8 +164,10 @@ For development, keep the folder anywhere and use the `+` command in
 
 The selected output folder is treated as the parent destination. The add-in
 creates a folder named from the current Fusion design filename without a
-trailing Fusion version such as ` v3`, followed by a physical-material folder.
-The final path is:
+trailing Fusion version such as ` v3`.
+
+With `One DXF per body` checked, each body is written under its
+physical-material folder:
 
 ```text
 <selected output>\<Fusion filename>\<material>\<name>_<thickness>mm.dxf
@@ -179,6 +184,24 @@ material is available, the component material is used; if neither is
 available, the folder is `Unspecified Material`. Thickness is rounded to at
 most three decimal places, so values such as `15 mm` and `18.5 mm` become
 `_15mm` and `_18.5mm`.
+
+For bodies selected from component occurrences, `{component}` uses the
+occurrence name so duplicated instances remain distinct. Fusion occurrence
+names such as `Speaker_Table_Legs:1` and `Speaker_Table_Legs:2` become
+`Speaker_Table_Legs_1` and `Speaker_Table_Legs_2` because Windows filenames
+cannot contain colons.
+
+With `One DXF per body` unchecked, all selected bodies are arranged
+left-to-right with a `10 mm` gap and written directly in the Fusion-design
+folder. The filename template is rendered using `Combined` for `{component}`
+and `Selected_Bodies` for `{body}`. The default template therefore creates:
+
+```text
+<selected output>\<Fusion filename>\Combined_Selected_Bodies.dxf
+```
+
+Combined files do not receive a thickness suffix because selected bodies may
+use different materials or thicknesses.
 
 The following session files are written directly in the version-free
 Fusion-design folder, alongside the material folders:

@@ -1,5 +1,6 @@
 """Safe ASCII DXF layer assignment and category-file merging."""
 
+import math
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -100,6 +101,127 @@ def merge_category_dxfs(
         expected_counts[layer_name] = entity_count
 
     required_layers = list(category_paths.keys())
+    if markup_text:
+        bounds = _layer_entity_bounds(merged_entities, "CUT_OUTSIDE")
+        if not bounds:
+            raise ValueError("CUT_OUTSIDE bounds are unavailable for filename markup.")
+        minimum_x, minimum_y, maximum_x, maximum_y = bounds
+        centre = (
+            (minimum_x + maximum_x) / 2.0,
+            (minimum_y + maximum_y) / 2.0,
+        )
+        shorter_side = min(maximum_x - minimum_x, maximum_y - minimum_y)
+        text_height = max(1.0, min(10.0, shorter_side * 0.05))
+        merged_entities.extend(
+            _text_entity(
+                markup_text,
+                MARKUP_LAYER,
+                centre,
+                text_height,
+                _allocate_handle(next_handle),
+                _uses_object_subclasses(base_pairs),
+            )
+        )
+        required_layers.append(MARKUP_LAYER)
+        expected_counts[MARKUP_LAYER] = 1
+
+    working_pairs = _ensure_layers(
+        base_pairs,
+        required_layers,
+        next_handle,
+    )
+    working_pairs = _replace_section_content(
+        working_pairs,
+        "ENTITIES",
+        merged_entities,
+    )
+    working_pairs = _set_handseed(working_pairs, next_handle[0])
+
+    temporary_path = f"{output_path}.postprocess.tmp"
+    try:
+        write_ascii_group_pairs(temporary_path, working_pairs)
+        validation = validate_layered_dxf(
+            temporary_path,
+            required_layers,
+        )
+        for layer_name, expected_count in expected_counts.items():
+            if validation.entity_counts.get(layer_name, 0) != expected_count:
+                raise ValueError(
+                    f"Layer {layer_name} entity count changed during validation."
+                )
+        os.replace(temporary_path, output_path)
+        validation.output_path = output_path
+        return validation
+    except Exception:
+        try:
+            if os.path.exists(temporary_path):
+                os.remove(temporary_path)
+        except OSError:
+            pass
+        raise
+
+
+def merge_body_category_dxfs(
+    body_category_paths: Sequence[Dict[str, str]],
+    output_path: str,
+    markup_text: Optional[str] = None,
+    body_spacing: float = 10.0,
+) -> DxfMergeResult:
+    """Merge multiple bodies side-by-side into one layered DXF."""
+
+    if not body_category_paths:
+        raise ValueError("At least one body DXF set is required.")
+    for category_paths in body_category_paths:
+        if "CUT_OUTSIDE" not in category_paths:
+            raise ValueError("Every body requires a CUT_OUTSIDE DXF.")
+
+    base_pairs = read_ascii_group_pairs(
+        body_category_paths[0]["CUT_OUTSIDE"]
+    )
+    next_handle = [_next_available_handle(base_pairs)]
+    merged_entities: List[GroupPair] = []
+    expected_counts: Dict[str, int] = {}
+    required_layers: List[str] = []
+    next_body_x = 0.0
+
+    for category_paths in body_category_paths:
+        outside_pairs = read_ascii_group_pairs(category_paths["CUT_OUTSIDE"])
+        outside_entities = _section_content(outside_pairs, "ENTITIES")
+        bounds = _entity_bounds(outside_entities)
+        if not bounds:
+            raise ValueError("CUT_OUTSIDE bounds are unavailable for body placement.")
+        minimum_x, minimum_y, maximum_x, _ = bounds
+        offset_x = next_body_x - minimum_x
+        offset_y = -minimum_y
+        next_body_x += maximum_x - minimum_x + body_spacing
+
+        for layer_name, category_path in category_paths.items():
+            category_pairs = read_ascii_group_pairs(category_path)
+            entity_pairs = _section_content(category_pairs, "ENTITIES")
+            layered_entities, entity_count = _assign_entities_to_layer(
+                entity_pairs,
+                layer_name,
+            )
+            if entity_count < 1:
+                raise ValueError(
+                    f"{layer_name} DXF contains no exportable entities."
+                )
+            layered_entities = _translate_entity_pairs(
+                layered_entities,
+                offset_x,
+                offset_y,
+            )
+            layered_entities = _remap_entity_handles(
+                layered_entities,
+                next_handle,
+            )
+            merged_entities.extend(layered_entities)
+            expected_counts[layer_name] = (
+                expected_counts.get(layer_name, 0) + entity_count
+            )
+            if layer_name not in required_layers:
+                required_layers.append(layer_name)
+
     if markup_text:
         bounds = _layer_entity_bounds(merged_entities, "CUT_OUTSIDE")
         if not bounds:
@@ -291,8 +413,7 @@ def _layer_entity_bounds(
     pairs: Sequence[GroupPair],
     layer_name: str,
 ) -> Optional[Tuple[float, float, float, float]]:
-    x_values: List[float] = []
-    y_values: List[float] = []
+    bounds = []
     for record in _entity_records(pairs):
         record_layer = next(
             (value.strip() for code, value in record if code == 8),
@@ -300,20 +421,114 @@ def _layer_entity_bounds(
         )
         if record_layer != layer_name:
             continue
-        entity_type = record[0][1].strip().upper()
-        record_x = _numeric_group_values(record, range(10, 19))
-        record_y = _numeric_group_values(record, range(20, 29))
-        x_values.extend(record_x)
-        y_values.extend(record_y)
-        if entity_type in {"CIRCLE", "ARC"} and record_x and record_y:
-            radius_values = _numeric_group_values(record, {40})
-            if radius_values:
-                radius = abs(radius_values[0])
-                x_values.extend((record_x[0] - radius, record_x[0] + radius))
-                y_values.extend((record_y[0] - radius, record_y[0] + radius))
-    if not x_values or not y_values:
+        record_bounds = _record_bounds(record)
+        if record_bounds:
+            bounds.append(record_bounds)
+    if not bounds:
         return None
+    return (
+        min(item[0] for item in bounds),
+        min(item[1] for item in bounds),
+        max(item[2] for item in bounds),
+        max(item[3] for item in bounds),
+    )
+
+
+def _entity_bounds(
+    pairs: Sequence[GroupPair],
+) -> Optional[Tuple[float, float, float, float]]:
+    bounds = [
+        record_bounds
+        for record in _entity_records(pairs)
+        if (record_bounds := _record_bounds(record)) is not None
+    ]
+    if not bounds:
+        return None
+    return (
+        min(item[0] for item in bounds),
+        min(item[1] for item in bounds),
+        max(item[2] for item in bounds),
+        max(item[3] for item in bounds),
+    )
+
+
+def _record_bounds(
+    record: Sequence[GroupPair],
+) -> Optional[Tuple[float, float, float, float]]:
+    entity_type = record[0][1].strip().upper()
+    point_codes = (
+        (10, 11)
+        if entity_type in {"LINE", "SPLINE", "TEXT"}
+        else (10,)
+    )
+    points = []
+    for x_code in point_codes:
+        x_values = _numeric_group_values(record, {x_code})
+        y_values = _numeric_group_values(record, {x_code + 10})
+        points.extend(zip(x_values, y_values))
+    if not points:
+        return None
+    x_values = [point[0] for point in points]
+    y_values = [point[1] for point in points]
+    if entity_type in {"CIRCLE", "ARC"}:
+        radius_values = _numeric_group_values(record, {40})
+        if radius_values:
+            radius = abs(radius_values[0])
+            x_values.extend((points[0][0] - radius, points[0][0] + radius))
+            y_values.extend((points[0][1] - radius, points[0][1] + radius))
+    elif entity_type == "ELLIPSE":
+        major_x = _numeric_group_values(record, {11})
+        major_y = _numeric_group_values(record, {21})
+        ratios = _numeric_group_values(record, {40})
+        if major_x and major_y and ratios:
+            ratio = abs(ratios[0])
+            x_extent = math.sqrt(
+                major_x[0] ** 2 + (major_y[0] * ratio) ** 2
+            )
+            y_extent = math.sqrt(
+                major_y[0] ** 2 + (major_x[0] * ratio) ** 2
+            )
+            x_values.extend(
+                (points[0][0] - x_extent, points[0][0] + x_extent)
+            )
+            y_values.extend(
+                (points[0][1] - y_extent, points[0][1] + y_extent)
+            )
     return min(x_values), min(y_values), max(x_values), max(y_values)
+
+
+def _translate_entity_pairs(
+    pairs: Sequence[GroupPair],
+    offset_x: float,
+    offset_y: float,
+) -> List[GroupPair]:
+    translated = []
+    for record in _entity_records(pairs):
+        entity_type = record[0][1].strip().upper()
+        x_codes = (
+            {10, 11}
+            if entity_type in {"LINE", "SPLINE", "TEXT"}
+            else {10}
+        )
+        y_codes = {code + 10 for code in x_codes}
+        for code, value in record:
+            offset = (
+                offset_x
+                if code in x_codes
+                else offset_y
+                if code in y_codes
+                else None
+            )
+            if offset is None:
+                translated.append((code, value))
+                continue
+            try:
+                translated.append(
+                    (code, _dxf_number(float(value.strip()) + offset))
+                )
+            except ValueError:
+                translated.append((code, value))
+    return translated
 
 
 def _numeric_group_values(

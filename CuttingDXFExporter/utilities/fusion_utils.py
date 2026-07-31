@@ -46,11 +46,14 @@ def body_identity(body: adsk.fusion.BRepBody, selection_index: int) -> str:
 
 
 def body_component_name(body: adsk.fusion.BRepBody) -> str:
-    """Return the owning component name for native or proxy bodies."""
+    """Return the owning component or occurrence name for a body."""
 
     try:
         occurrence = body.assemblyContext
         if occurrence:
+            occurrence_name = str(occurrence.name or "").strip()
+            if occurrence_name:
+                return occurrence_name
             return str(occurrence.component.name)
     except Exception:
         pass
