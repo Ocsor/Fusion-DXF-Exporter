@@ -40,19 +40,21 @@ from ..utilities.reporting_utils import (
 )
 
 COMMAND_ID = "CuttingDXFExporter_ExportCuttingDXFs"
-COMMAND_NAME = "Export Cutting DXFs"
+ADDIN_VERSION = "0.4.1-phase4-dogbone"
+COMMAND_NAME = "Export Cutting DXFs (v0.4.1)"
 COMMAND_DESCRIPTION = (
-    "Analyse finished solid bodies before creating manufacturing DXF files."
+    "Analyse finished solid bodies before creating manufacturing DXF files. "
+    f"Build {ADDIN_VERSION}."
 )
 WORKSPACE_ID = "FusionSolidEnvironment"
 PANEL_ID = "SolidScriptsAddinsPanel"
-ADDIN_VERSION = "0.4.0-phase4"
 INITIAL_DIALOG_WIDTH = 430
 INITIAL_DIALOG_HEIGHT = 700
 MINIMUM_DIALOG_WIDTH = 380
 MINIMUM_DIALOG_HEIGHT = 550
 
 BODY_INPUT_ID = "selected_bodies"
+VERSION_INPUT_ID = "addin_version"
 OUTPUT_FOLDER_INPUT_ID = "output_folder"
 BROWSE_INPUT_ID = "browse_output_folder"
 FACE_MODE_INPUT_ID = "face_selection_mode"
@@ -154,6 +156,14 @@ class CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
                 INITIAL_DIALOG_HEIGHT,
             )
             inputs = command.commandInputs
+
+            inputs.addTextBoxCommandInput(
+                VERSION_INPUT_ID,
+                "Add-in build",
+                ADDIN_VERSION,
+                1,
+                True,
+            )
 
             output_folder = inputs.addStringValueInput(
                 OUTPUT_FOLDER_INPUT_ID,

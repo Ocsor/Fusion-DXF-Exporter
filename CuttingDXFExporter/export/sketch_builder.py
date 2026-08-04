@@ -227,6 +227,15 @@ def _prepare_rebate_geometry(
                     layer_name,
                     offset_inward,
                 )
+                if not offset_inward:
+                    offset_curves = _extend_curved_rebate_contact_lines(
+                        sketch,
+                        connected_entities,
+                        offset_curves,
+                        outside_lines,
+                        rebate_offset_internal,
+                        layer_name,
+                    )
             else:
                 offset_curves = []
                 for start, end in offset_segments:
@@ -554,6 +563,220 @@ def _uniform_rebate_offset(
             f"Fusion offset rebate geometry the wrong way on {layer_name}."
         )
     return offset_curves
+
+
+def _extend_curved_rebate_contact_lines(
+    sketch: Any,
+    source_entities: Iterable[Any],
+    offset_curves: List[Any],
+    outside_lines: Iterable[
+        Tuple[Tuple[float, float], Tuple[float, float]]
+    ],
+    rebate_offset_internal: float,
+    layer_name: str,
+) -> List[Any]:
+    outside_lines = list(outside_lines)
+    contact_lines = [
+        line
+        for entity in source_entities
+        if (line := _sketch_line_points(entity)) is not None
+        and _line_touches_outside(line, outside_lines)
+    ]
+    for source_line in contact_lines:
+        offset_line = _matching_offset_line(
+            source_line,
+            offset_curves,
+            rebate_offset_internal,
+        )
+        if offset_line is None:
+            raise RuntimeError(
+                f"Could not identify an offset rebate edge on {layer_name}."
+            )
+        offset_line_points = _sketch_line_points(offset_line)
+        if offset_line_points is None:
+            raise RuntimeError(
+                f"A rebate contact edge was not straight on {layer_name}."
+            )
+        adjacent_lines = []
+        for endpoint in offset_line_points:
+            matches = [
+                entity
+                for entity in offset_curves
+                if _entity_key(entity) != _entity_key(offset_line)
+                and (points := _sketch_line_points(entity)) is not None
+                and any(_points_are_close(endpoint, point) for point in points)
+            ]
+            if len(matches) != 1:
+                raise RuntimeError(
+                    "A curved rebate edge touching the outside profile must "
+                    f"have one straight adjoining edge at each end on {layer_name}."
+                )
+            adjacent_lines.append(matches[0])
+
+        desired_line = _extended_contact_line(source_line, offset_line_points)
+        replacement_adjacent_lines = []
+        contact_endpoints = []
+        for endpoint, adjacent_line in zip(offset_line_points, adjacent_lines):
+            adjacent_points = _sketch_line_points(adjacent_line)
+            if adjacent_points is None:
+                raise RuntimeError(
+                    f"A rebate adjoining edge was not straight on {layer_name}."
+                )
+            far_endpoint = (
+                adjacent_points[1]
+                if _points_are_close(endpoint, adjacent_points[0])
+                else adjacent_points[0]
+            )
+            intersection = _line_intersection(adjacent_points, desired_line)
+            if intersection is None:
+                raise RuntimeError(
+                    f"A rebate adjoining edge is parallel on {layer_name}."
+                )
+            replacement = sketch.sketchCurves.sketchLines.addByTwoPoints(
+                adsk.core.Point3D.create(far_endpoint[0], far_endpoint[1], 0.0),
+                adsk.core.Point3D.create(intersection[0], intersection[1], 0.0),
+            )
+            if not replacement:
+                raise RuntimeError(
+                    f"Fusion did not extend a rebate side edge on {layer_name}."
+                )
+            replacement_adjacent_lines.append(replacement)
+            contact_endpoints.append(intersection)
+
+        replacement_contact_line = sketch.sketchCurves.sketchLines.addByTwoPoints(
+            adsk.core.Point3D.create(
+                contact_endpoints[0][0],
+                contact_endpoints[0][1],
+                0.0,
+            ),
+            adsk.core.Point3D.create(
+                contact_endpoints[1][0],
+                contact_endpoints[1][1],
+                0.0,
+            ),
+        )
+        if not replacement_contact_line:
+            raise RuntimeError(
+                f"Fusion did not extend a rebate contact edge on {layer_name}."
+            )
+
+        replaced_keys = {
+            _entity_key(offset_line),
+            *(_entity_key(entity) for entity in adjacent_lines),
+        }
+        retained_curves = [
+            entity
+            for entity in offset_curves
+            if _entity_key(entity) not in replaced_keys
+        ]
+        for entity in [offset_line, *adjacent_lines]:
+            if not entity.deleteMe():
+                raise RuntimeError(
+                    f"Could not replace curved rebate geometry on {layer_name}."
+                )
+        offset_curves = retained_curves
+        offset_curves.extend(
+            [replacement_contact_line, *replacement_adjacent_lines]
+        )
+    return offset_curves
+
+
+def _matching_offset_line(
+    source_line: Tuple[Tuple[float, float], Tuple[float, float]],
+    offset_curves: Iterable[Any],
+    rebate_offset_internal: float,
+) -> Optional[Any]:
+    source_start, source_end = source_line
+    delta_x = source_end[0] - source_start[0]
+    delta_y = source_end[1] - source_start[1]
+    source_length = math.hypot(delta_x, delta_y)
+    if source_length <= 1e-12:
+        return None
+    unit_x = delta_x / source_length
+    unit_y = delta_y / source_length
+    candidates = []
+    for entity in offset_curves:
+        points = _sketch_line_points(entity)
+        if points is None:
+            continue
+        candidate_start, candidate_end = points
+        candidate_delta_x = candidate_end[0] - candidate_start[0]
+        candidate_delta_y = candidate_end[1] - candidate_start[1]
+        candidate_length = math.hypot(candidate_delta_x, candidate_delta_y)
+        if candidate_length <= 1e-12:
+            continue
+        parallel_error = abs(
+            unit_x * candidate_delta_y / candidate_length
+            - unit_y * candidate_delta_x / candidate_length
+        )
+        if parallel_error > 1e-6:
+            continue
+        tangent_positions = [
+            (point[0] - source_start[0]) * unit_x
+            + (point[1] - source_start[1]) * unit_y
+            for point in points
+        ]
+        if (
+            max(tangent_positions) < -REBATE_CONTACT_TOLERANCE_INTERNAL
+            or min(tangent_positions)
+            > source_length + REBATE_CONTACT_TOLERANCE_INTERNAL
+        ):
+            continue
+        candidate_midpoint = (
+            (candidate_start[0] + candidate_end[0]) / 2.0,
+            (candidate_start[1] + candidate_end[1]) / 2.0,
+        )
+        perpendicular_distance = abs(
+            (candidate_midpoint[0] - source_start[0]) * -unit_y
+            + (candidate_midpoint[1] - source_start[1]) * unit_x
+        )
+        candidates.append(
+            (
+                abs(perpendicular_distance - rebate_offset_internal),
+                entity,
+            )
+        )
+    return (
+        min(candidates, key=lambda candidate: candidate[0])[1]
+        if candidates
+        else None
+    )
+
+
+def _extended_contact_line(
+    source_line: Tuple[Tuple[float, float], Tuple[float, float]],
+    offset_line: Tuple[Tuple[float, float], Tuple[float, float]],
+) -> Tuple[Tuple[float, float], Tuple[float, float]]:
+    source_start, source_end = source_line
+    delta_x = source_end[0] - source_start[0]
+    delta_y = source_end[1] - source_start[1]
+    length = math.hypot(delta_x, delta_y)
+    normal_x = -delta_y / length
+    normal_y = delta_x / length
+    source_midpoint = (
+        (source_start[0] + source_end[0]) / 2.0,
+        (source_start[1] + source_end[1]) / 2.0,
+    )
+    offset_midpoint = (
+        (offset_line[0][0] + offset_line[1][0]) / 2.0,
+        (offset_line[0][1] + offset_line[1][1]) / 2.0,
+    )
+    if (
+        (offset_midpoint[0] - source_midpoint[0]) * normal_x
+        + (offset_midpoint[1] - source_midpoint[1]) * normal_y
+    ) < 0.0:
+        normal_x = -normal_x
+        normal_y = -normal_y
+    return (
+        (
+            source_start[0] + normal_x * REBATE_EDGE_EXTENSION_INTERNAL,
+            source_start[1] + normal_y * REBATE_EDGE_EXTENSION_INTERNAL,
+        ),
+        (
+            source_end[0] + normal_x * REBATE_EDGE_EXTENSION_INTERNAL,
+            source_end[1] + normal_y * REBATE_EDGE_EXTENSION_INTERNAL,
+        ),
+    )
 
 
 def _connected_curve_groups(

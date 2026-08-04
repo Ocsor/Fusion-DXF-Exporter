@@ -1,5 +1,8 @@
 # Cutting DXF Exporter
 
+Current manifest version: `0.4.1`. Current visible build:
+`0.4.1-phase4-dogbone`.
+
 Cutting DXF Exporter is a Windows Autodesk Fusion add-in that derives
 manufacturing DXF files from finished solid B-Rep geometry.
 
@@ -131,7 +134,12 @@ CuttingDXFExporter/
 6. Choose **Utilities > Add-Ins > Scripts and Add-Ins**.
 7. Select **CuttingDXFExporter** on the Add-Ins tab and choose **Run**.
 8. Optionally enable **Run on Startup**.
-9. Find **Export Cutting DXFs** in the Design workspace Add-Ins panel.
+9. Find **Export Cutting DXFs (v0.4.1)** in the Design workspace Add-Ins panel.
+
+For this dog-bone build, the first row of the export dialog must show
+`0.4.1-phase4-dogbone`. If it still shows `0.4.0-phase4`, Fusion is loading a
+different installed copy; stop that add-in, replace or relink its complete
+`CuttingDXFExporter` folder, and run it again.
 
 For development, keep the folder anywhere and use the `+` command in
 **Scripts and Add-Ins** to link the folder from the device.
@@ -272,8 +280,11 @@ Before export, each straight connected front or rear rebate boundary is
 compared with the `CUT_OUTSIDE` profile. Every rebate edge that lies on the
 outside profile is extended outward by `5 mm`. The other edges expand by the
 `Rebate offset` command value, which defaults to `0.3 mm`. A value of `0 mm`
-exports the detected boundary without changing its size. Curved rebate
-boundaries retain the uniform configurable offset. When a rebate surrounds the
+exports the detected boundary without changing its size. Curved rebate sections
+retain the uniform configurable offset. In a mixed line-and-curve rebate, a
+straight edge lying on the outside profile still receives the `5 mm` extension,
+and its straight adjoining edges lengthen to meet it while the curves remain
+unchanged apart from their configurable offset. When a rebate surrounds the
 entire panel, every floor loop is retained: the outer boundary receives the
 `5 mm` extension and the nested inner boundary moves inward by the configurable
 offset so the actual rebate width remains represented in the DXF.

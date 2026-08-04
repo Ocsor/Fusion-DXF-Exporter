@@ -3,7 +3,7 @@
 ## Test Environment
 
 - Current Autodesk Fusion for Windows.
-- Add-in version `0.3.11-phase3`.
+- Add-in build `0.4.1-phase4-dogbone`.
 - A new parametric Design.
 - Default tolerance `0.01 mm`.
 - An empty writable output folder.
@@ -133,7 +133,20 @@ Create a straight `4 mm` deep rebate open to one outside edge.
 - Setting `Rebate offset` to `0 mm` restores the exact detected rebate boundary.
 - `CUT_OUTSIDE` is sourced from the largest complete support-plane face.
 
-## 8A. Four-Edge Front Rebate
+## 8A. Dog-Bone Front Edge Rebate
+
+Create a front rebate whose inner boundary has circular dog-bone ends, straight
+legs to one outside edge, and a straight boundary coincident with that edge.
+
+### Expected Result
+
+- The circular ends retain their native arc geometry and configurable offset.
+- The straight rebate boundary coincident with `CUT_OUTSIDE` is `5 mm` beyond
+  the panel edge.
+- The two straight adjoining legs lengthen to meet the extended boundary.
+- No dog-bone arc is replaced by a straight chord.
+
+## 8B. Four-Edge Front Rebate
 
 Create a rectangular panel with one continuous rebate around all four outside
 edges, leaving a raised rectangular centre.
@@ -148,7 +161,7 @@ edges, leaving a raised rectangular centre.
   outside profile.
 - Setting `Rebate offset` to `0 mm` keeps the detected inner boundary unchanged.
 
-## 8B. Rear Pocket and Rebate Export
+## 8C. Rear Pocket and Rebate Export
 
 Create a panel with a `6 mm` pocket and a `4 mm` edge rebate machined from the
 rear face. Select the intended front face manually so the machining remains on
