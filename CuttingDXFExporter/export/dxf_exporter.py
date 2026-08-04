@@ -198,18 +198,41 @@ def export_phase_four_bodies_combined(
     rebate_offset_internal: float,
     delete_temporary_sketches: bool,
     logger: logging.Logger,
+    merge_reference_face: Optional[Any] = None,
+    merge_reference_analysis: Optional[BodyAnalysis] = None,
 ) -> List[ExportResult]:
-    """Export selected bodies side-by-side in one layered DXF."""
+    """Export selected bodies side-by-side or in shared model positions."""
 
     bodies = list(bodies)
     analyses = list(analyses)
     if not bodies or len(bodies) != len(analyses):
         raise ValueError("Combined export requires one analysis per selected body.")
-    filename = render_body_filename(
-        filename_template,
-        "Combined",
-        "Selected_Bodies",
-    )
+    if merge_reference_face and not merge_reference_analysis:
+        raise ValueError("Merged export requires the reference-face analysis.")
+    if merge_reference_face:
+        component_names = {
+            analysis.component_name.strip()
+            for analysis in analyses
+            if analysis.component_name.strip()
+        }
+        if len(component_names) == 1:
+            filename = render_body_filename(
+                "{component}",
+                next(iter(component_names)),
+                "Selected_Bodies",
+            )
+        else:
+            filename = render_body_filename(
+                filename_template,
+                "Merged",
+                "Selected_Bodies",
+            )
+    else:
+        filename = render_body_filename(
+            filename_template,
+            "Combined",
+            "Selected_Bodies",
+        )
     output_path = os.path.join(output_folder, f"{filename}.dxf")
     results = [
         ExportResult(body_token=analysis.body_token, output_path=output_path)
@@ -250,6 +273,9 @@ def export_phase_four_bodies_combined(
                 mitre_offset_internal=mitre_offset_internal,
                 rebate_offset_internal=rebate_offset_internal,
                 sketch_set=sketch_set,
+                sketch_plane_face=merge_reference_face,
+                orientation_analysis=merge_reference_analysis,
+                normalize_to_origin=not bool(merge_reference_face),
             )
             body_category_paths = {}
             for layer_name, sketch in sketch_set.sketches.items():
@@ -280,11 +306,13 @@ def export_phase_four_bodies_combined(
             category_sets,
             output_path,
             markup_text=os.path.basename(output_path),
+            preserve_body_positions=bool(merge_reference_face),
         )
         for result in results:
             result.succeeded = True
         logger.info(
-            "Combined DXF path=%s bodies=%d entity_counts=%s",
+            "%s DXF path=%s bodies=%d entity_counts=%s",
+            "Merged" if merge_reference_face else "Combined",
             output_path,
             len(bodies),
             merge_result.entity_counts,

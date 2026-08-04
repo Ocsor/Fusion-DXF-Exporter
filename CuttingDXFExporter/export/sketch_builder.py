@@ -58,6 +58,9 @@ def build_phase_three_sketches(
     mitre_offset_internal: float = DEFAULT_MITRE_OFFSET_INTERNAL,
     rebate_offset_internal: float = DEFAULT_REBATE_OFFSET_INTERNAL,
     sketch_set: Optional[TemporarySketchSet] = None,
+    sketch_plane_face: Optional[Any] = None,
+    orientation_analysis: Optional[BodyAnalysis] = None,
+    normalize_to_origin: bool = True,
 ) -> TemporarySketchSet:
     """Create aligned, origin-shifted sketches for supported operations."""
 
@@ -77,9 +80,11 @@ def build_phase_three_sketches(
         raise RuntimeError("No outside profile is available for export.")
 
     sketch_set = sketch_set or TemporarySketchSet()
+    sketch_plane_face = sketch_plane_face or front_face
+    orientation_analysis = orientation_analysis or analysis
     root_component = design.rootComponent
     for layer_name, operations in operations_by_layer.items():
-        sketch = root_component.sketches.add(front_face)
+        sketch = root_component.sketches.add(sketch_plane_face)
         if not sketch:
             raise RuntimeError(
                 f"Fusion did not create {temporary_sketch_name(layer_name)}."
@@ -103,22 +108,23 @@ def build_phase_three_sketches(
         outside_layer,
         mitre_offset_internal,
     )
-    rotation = _stable_axis_rotation(outside_sketch, analysis)
+    rotation = _stable_axis_rotation(outside_sketch, orientation_analysis)
     sketch_set.rotation_radians = rotation
     for layer_name, sketch in sketch_set.sketches.items():
         _rotate_entities(sketch, sketch_set.entities[layer_name], rotation)
 
-    outside_entities = sketch_set.entities[outside_layer]
-    minimum_x, minimum_y = _entity_minimum(outside_entities)
-    translation = (-minimum_x, -minimum_y)
-    sketch_set.translation = translation
-    for layer_name, sketch in sketch_set.sketches.items():
-        _translate_entities(
-            sketch,
-            sketch_set.entities[layer_name],
-            translation[0],
-            translation[1],
-        )
+    if normalize_to_origin:
+        outside_entities = sketch_set.entities[outside_layer]
+        minimum_x, minimum_y = _entity_minimum(outside_entities)
+        translation = (-minimum_x, -minimum_y)
+        sketch_set.translation = translation
+        for layer_name, sketch in sketch_set.sketches.items():
+            _translate_entities(
+                sketch,
+                sketch_set.entities[layer_name],
+                translation[0],
+                translation[1],
+            )
     return sketch_set
 
 

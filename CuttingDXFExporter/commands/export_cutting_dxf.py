@@ -7,7 +7,15 @@ from typing import Any, List, Optional
 import adsk.core
 import adsk.fusion
 
-from ..analysis.body_analyser import analyse_body
+from ..analysis.body_analyser import (
+    DEFAULT_ANGULAR_TOLERANCE_RADIANS,
+    analyse_body,
+)
+from ..analysis.face_analyser import (
+    collect_planar_faces,
+    largest_planar_face,
+    record_for_manual_face,
+)
 from ..export.dxf_exporter import (
     export_phase_four_bodies_combined,
     export_phase_three_body,
@@ -29,6 +37,7 @@ from ..utilities.fusion_utils import (
     show_error,
     temp_id,
 )
+from ..utilities.geometry_utils import are_parallel, dot
 from ..utilities.logging_utils import (
     configure_session_logger,
     finish_session,
@@ -40,8 +49,8 @@ from ..utilities.reporting_utils import (
 )
 
 COMMAND_ID = "CuttingDXFExporter_ExportCuttingDXFs"
-ADDIN_VERSION = "0.4.1-phase4-dogbone"
-COMMAND_NAME = "Export Cutting DXFs (v0.4.1)"
+ADDIN_VERSION = "0.5.2-merge-component-name"
+COMMAND_NAME = "Export Cutting DXFs (v0.5.2)"
 COMMAND_DESCRIPTION = (
     "Analyse finished solid bodies before creating manufacturing DXF files. "
     f"Build {ADDIN_VERSION}."
@@ -66,6 +75,8 @@ OPEN_FOLDER_INPUT_ID = "open_folder"
 INCLUDE_FRONT_INPUT_ID = "include_front"
 INCLUDE_REAR_INPUT_ID = "include_rear"
 ONE_DXF_PER_BODY_INPUT_ID = "one_dxf_per_body"
+MERGE_BODIES_INPUT_ID = "merge_bodies"
+MERGE_FACE_INPUT_ID = "merge_reference_face"
 WRITE_CSV_INPUT_ID = "write_csv"
 WRITE_JSON_INPUT_ID = "write_json"
 DEPTH_LAYERS_INPUT_ID = "depth_layers"
@@ -241,6 +252,17 @@ class CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
                 "Uncheck to arrange all selected bodies left-to-right in one "
                 "combined DXF."
             )
+            merge_bodies = inputs.addBoolValueInput(
+                MERGE_BODIES_INPUT_ID,
+                "Merge Bodies",
+                True,
+                "",
+                False,
+            )
+            merge_bodies.tooltip = (
+                "Merge exactly two aligned bodies, including stacked material "
+                "layers. Select one front face to define the shared DXF plane."
+            )
 
             bodies = inputs.addSelectionInput(
                 BODY_INPUT_ID,
@@ -258,6 +280,15 @@ class CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
             manual_faces.addSelectionFilter("PlanarFaces")
             manual_faces.setSelectionLimits(0, 0)
             manual_faces.isVisible = True
+
+            merge_face = inputs.addSelectionInput(
+                MERGE_FACE_INPUT_ID,
+                "Merge reference face",
+                "Select one planar front face from either selected body.",
+            )
+            merge_face.addSelectionFilter("PlanarFaces")
+            merge_face.setSelectionLimits(0, 1)
+            merge_face.isVisible = False
 
             inputs.addBoolValueInput(
                 DELETE_TEMP_INPUT_ID,
@@ -355,10 +386,8 @@ class InputChangedHandler(adsk.core.InputChangedEventHandler):
             if changed.id == BROWSE_INPUT_ID and changed.value:
                 self._browse(command_inputs)
                 changed.value = False
-            elif changed.id == FACE_MODE_INPUT_ID:
-                mode = changed.selectedItem.name if changed.selectedItem else ""
-                manual_input = command_inputs.itemById(MANUAL_FACE_INPUT_ID)
-                manual_input.isVisible = mode == FACE_MODES[1]
+            elif changed.id in {FACE_MODE_INPUT_ID, MERGE_BODIES_INPUT_ID}:
+                self._update_selection_controls(command_inputs)
         except Exception:
             get_logger().exception("Input-changed handler failed.")
 
@@ -374,6 +403,20 @@ class InputChangedHandler(adsk.core.InputChangedEventHandler):
         if dialog.showDialog() == adsk.core.DialogResults.DialogOK:
             output_input.value = dialog.folder
 
+    @staticmethod
+    def _update_selection_controls(command_inputs: adsk.core.CommandInputs) -> None:
+        merge_enabled = command_inputs.itemById(MERGE_BODIES_INPUT_ID).value
+        mode_input = command_inputs.itemById(FACE_MODE_INPUT_ID)
+        mode = mode_input.selectedItem.name if mode_input.selectedItem else ""
+        mode_input.isEnabled = not merge_enabled
+        command_inputs.itemById(MANUAL_FACE_INPUT_ID).isVisible = (
+            not merge_enabled and mode == FACE_MODES[1]
+        )
+        command_inputs.itemById(MERGE_FACE_INPUT_ID).isVisible = merge_enabled
+        command_inputs.itemById(ONE_DXF_PER_BODY_INPUT_ID).isEnabled = (
+            not merge_enabled
+        )
+
 
 class ValidateInputsHandler(adsk.core.ValidateInputsEventHandler):
     """Prevent analysis when required inputs are incomplete or inconsistent."""
@@ -385,6 +428,24 @@ class ValidateInputsHandler(adsk.core.ValidateInputsEventHandler):
             if body_input.selectionCount < 1:
                 args.areInputsValid = False
                 return
+            merge_enabled = inputs.itemById(MERGE_BODIES_INPUT_ID).value
+            if merge_enabled:
+                if body_input.selectionCount != 2:
+                    args.areInputsValid = False
+                    return
+                merge_face_input = inputs.itemById(MERGE_FACE_INPUT_ID)
+                if merge_face_input.selectionCount != 1:
+                    args.areInputsValid = False
+                    return
+                merge_face = adsk.fusion.BRepFace.cast(
+                    merge_face_input.selection(0).entity
+                )
+                bodies = selected_bodies(body_input)
+                if not merge_face or not any(
+                    _face_belongs_to_body(merge_face, body) for body in bodies
+                ):
+                    args.areInputsValid = False
+                    return
             output_folder = inputs.itemById(OUTPUT_FOLDER_INPUT_ID).value
             validate_output_folder(output_folder)
             filename_template = inputs.itemById(FILENAME_INPUT_ID).value.strip()
@@ -395,7 +456,7 @@ class ValidateInputsHandler(adsk.core.ValidateInputsEventHandler):
 
             mode_input = inputs.itemById(FACE_MODE_INPUT_ID)
             mode = mode_input.selectedItem.name if mode_input.selectedItem else ""
-            if mode == FACE_MODES[1]:
+            if not merge_enabled and mode == FACE_MODES[1]:
                 manual_input = inputs.itemById(MANUAL_FACE_INPUT_ID)
                 bodies = selected_bodies(body_input)
                 if manual_input.selectionCount != len(bodies):
@@ -442,6 +503,19 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
             mode = mode_input.selectedItem.name if mode_input.selectedItem else FACE_MODES[1]
             manual_input = command_inputs.itemById(MANUAL_FACE_INPUT_ID)
             tolerance_internal = command_inputs.itemById(TOLERANCE_INPUT_ID).value
+            merge_bodies = command_inputs.itemById(MERGE_BODIES_INPUT_ID).value
+            merge_reference_face = None
+            merge_front_faces = None
+            if merge_bodies:
+                merge_face_input = command_inputs.itemById(MERGE_FACE_INPUT_ID)
+                merge_reference_face = adsk.fusion.BRepFace.cast(
+                    merge_face_input.selection(0).entity
+                )
+                merge_front_faces = _merge_front_faces(
+                    bodies,
+                    merge_reference_face,
+                    tolerance_internal,
+                )
 
             logger.info(
                 "Selected bodies=%d mode=%s tolerance_internal=%s",
@@ -460,14 +534,20 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
                 )
                 try:
                     manual_face = (
-                        _manual_face_for_body(manual_input, body)
-                        if mode == FACE_MODES[1] else None
+                        merge_front_faces[selection_index]
+                        if merge_front_faces is not None
+                        else _manual_face_for_body(manual_input, body)
+                        if mode == FACE_MODES[1]
+                        else None
                     )
                     analysis = analyse_body(
                         design=design,
                         body=body,
                         selection_index=selection_index,
-                        face_selection_mode=mode,
+                        face_selection_mode=(
+                            "Manual: Merge Bodies reference face"
+                            if merge_bodies else mode
+                        ),
                         tolerance_internal=tolerance_internal,
                         manual_front_face=manual_face,
                     )
@@ -523,7 +603,34 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
             rebate_offset_internal = command_inputs.itemById(
                 REBATE_OFFSET_INPUT_ID
             ).value
-            if one_dxf_per_body:
+            if merge_bodies:
+                reference_body_index = next(
+                    index
+                    for index, body in enumerate(bodies)
+                    if _face_belongs_to_body(merge_reference_face, body)
+                )
+                export_results = export_phase_four_bodies_combined(
+                    design=design,
+                    bodies=bodies,
+                    analyses=analyses,
+                    output_folder=output_folder,
+                    filename_template=filename_template,
+                    include_front_machining=include_front_machining,
+                    include_rear_machining=include_rear_machining,
+                    include_depth_in_layer_names=include_depth_in_layer_names,
+                    mitre_offset_internal=mitre_offset_internal,
+                    rebate_offset_internal=rebate_offset_internal,
+                    delete_temporary_sketches=delete_temporary_sketches,
+                    logger=logger,
+                    merge_reference_face=merge_reference_face,
+                    merge_reference_analysis=analyses[reference_body_index],
+                )
+                for export_result in export_results:
+                    logger.info(
+                        "Merged export result=%s",
+                        json.dumps(export_result.to_dict(), ensure_ascii=False),
+                    )
+            elif one_dxf_per_body:
                 export_results = []
                 for body, analysis in zip(bodies, analyses):
                     export_result = export_phase_three_body(
@@ -678,6 +785,67 @@ def _manual_faces_cover_bodies(
     bodies: List[adsk.fusion.BRepBody],
 ) -> bool:
     return all(_manual_face_for_body(manual_input, body) is not None for body in bodies)
+
+
+def _merge_front_faces(
+    bodies: List[adsk.fusion.BRepBody],
+    reference_face: adsk.fusion.BRepFace,
+    _tolerance_internal: float,
+) -> List[adsk.fusion.BRepFace]:
+    if len(bodies) != 2 or not reference_face:
+        raise ValueError("Merge Bodies requires exactly two bodies and one face.")
+    reference_body = next(
+        (body for body in bodies if _face_belongs_to_body(reference_face, body)),
+        None,
+    )
+    if not reference_body:
+        raise ValueError("The merge reference face must belong to a selected body.")
+    reference_record = record_for_manual_face(
+        collect_planar_faces(reference_body),
+        reference_face,
+    )
+    if not reference_record:
+        raise ValueError("The merge reference face must be planar.")
+
+    matched_faces = []
+    for body in bodies:
+        if _face_belongs_to_body(reference_face, body):
+            matched_faces.append(reference_face)
+            continue
+        candidates = [
+            record
+            for record in collect_planar_faces(body)
+            if are_parallel(
+                reference_record.normal,
+                record.normal,
+                DEFAULT_ANGULAR_TOLERANCE_RADIANS,
+            )
+            and dot(reference_record.normal, record.normal) > 0.0
+        ]
+        match = largest_planar_face(candidates)
+        if not match:
+            raise ValueError(
+                f"{body.name} has no parallel front face aligned with the "
+                "selected merge reference face."
+            )
+        matched_faces.append(match.face)
+    return matched_faces
+
+
+def _face_belongs_to_body(
+    face: adsk.fusion.BRepFace,
+    body: adsk.fusion.BRepBody,
+) -> bool:
+    if not face or not face.body:
+        return False
+    face_body = face.body
+    face_token = entity_token(face_body)
+    body_token = entity_token(body)
+    if face_token and body_token:
+        return face_token == body_token
+    face_temp_id = temp_id(face_body)
+    body_temp_id = temp_id(body)
+    return face_temp_id is not None and face_temp_id == body_temp_id
 
 
 def _manual_face_for_body(

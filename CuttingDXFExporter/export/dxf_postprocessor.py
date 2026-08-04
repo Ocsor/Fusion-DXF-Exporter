@@ -166,8 +166,9 @@ def merge_body_category_dxfs(
     output_path: str,
     markup_text: Optional[str] = None,
     body_spacing: float = 10.0,
+    preserve_body_positions: bool = False,
 ) -> DxfMergeResult:
-    """Merge multiple bodies side-by-side into one layered DXF."""
+    """Merge multiple bodies into one layered DXF."""
 
     if not body_category_paths:
         raise ValueError("At least one body DXF set is required.")
@@ -191,9 +192,13 @@ def merge_body_category_dxfs(
         if not bounds:
             raise ValueError("CUT_OUTSIDE bounds are unavailable for body placement.")
         minimum_x, minimum_y, maximum_x, _ = bounds
-        offset_x = next_body_x - minimum_x
-        offset_y = -minimum_y
-        next_body_x += maximum_x - minimum_x + body_spacing
+        if preserve_body_positions:
+            offset_x = 0.0
+            offset_y = 0.0
+        else:
+            offset_x = next_body_x - minimum_x
+            offset_y = -minimum_y
+            next_body_x += maximum_x - minimum_x + body_spacing
 
         for layer_name, category_path in category_paths.items():
             category_pairs = read_ascii_group_pairs(category_path)
@@ -221,6 +226,17 @@ def merge_body_category_dxfs(
             )
             if layer_name not in required_layers:
                 required_layers.append(layer_name)
+
+    if preserve_body_positions:
+        bounds = _layer_entity_bounds(merged_entities, "CUT_OUTSIDE")
+        if not bounds:
+            raise ValueError("CUT_OUTSIDE bounds are unavailable for merged placement.")
+        minimum_x, minimum_y, _, _ = bounds
+        merged_entities = _translate_entity_pairs(
+            merged_entities,
+            -minimum_x,
+            -minimum_y,
+        )
 
     if markup_text:
         bounds = _layer_entity_bounds(merged_entities, "CUT_OUTSIDE")

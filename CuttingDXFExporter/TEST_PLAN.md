@@ -3,7 +3,7 @@
 ## Test Environment
 
 - Current Autodesk Fusion for Windows.
-- Add-in build `0.4.1-phase4-dogbone`.
+- Add-in build `0.5.2-merge-component-name`.
 - A new parametric Design.
 - Default tolerance `0.01 mm`.
 - An empty writable output folder.
@@ -238,6 +238,36 @@ Clear `One DXF per body` and export the same selection again.
 
 - **Analyse and Review** remains disabled.
 - Selecting exactly one planar face per body enables it.
+
+## 12A. Merge Two Aligned Bodies
+
+Create two separate flat solid bodies on the same front manufacturing plane,
+positioned with a measurable gap between them.
+
+1. Select both bodies.
+2. Enable **Merge Bodies**.
+3. Select one planar front face from either body.
+4. Analyse, review, and export.
+
+### Expected Result
+
+- **Merge Bodies** is unchecked when the command first opens.
+- Exactly two bodies and one reference face are required.
+- The second body's parallel, same-facing front face is found automatically.
+- When both bodies share a component, one DXF named directly from that
+  component is created.
+- Bodies from different components use the configured merged filename format.
+- Both profiles retain the same gap and relative position as the Fusion model.
+- Through-cuts and machining layers stay aligned with their source body.
+
+Repeat with an MDF body and a thinner ACM body stacked directly against it.
+Apply matching mitres through both bodies and select the exposed front face of
+either material as the merge reference.
+
+- The depth offset between the two selected faces is accepted.
+- The projected outside profiles and mitre guides remain aligned.
+- Selecting bodies without parallel manufacturing faces reports that no
+  aligned front face was found.
 
 ## 13. Operator Cancellation
 
