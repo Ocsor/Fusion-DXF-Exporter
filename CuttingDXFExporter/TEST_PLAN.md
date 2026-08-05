@@ -3,7 +3,7 @@
 ## Test Environment
 
 - Current Autodesk Fusion for Windows.
-- Add-in build `0.6.2-persisted-union-export`.
+- Add-in build `0.6.5-outer-silhouette-loop`.
 - A new parametric Design.
 - Default tolerance `0.01 mm`.
 - An empty writable output folder.
@@ -131,7 +131,7 @@ Create a straight `4 mm` deep rebate open to one outside edge.
 - A rebate touching three outside edges receives three `5 mm` extensions and
   applies the configurable offset only to its remaining edge.
 - Setting `Rebate offset` to `0 mm` restores the exact detected rebate boundary.
-- `CUT_OUTSIDE` is sourced from the largest complete support-plane face.
+- `CUT_OUTSIDE` is sourced from the complete projected body silhouette.
 
 ## 8A. Dog-Bone Front Edge Rebate
 
@@ -176,6 +176,24 @@ the rear side.
 - The rear rebate uses the same `5 mm` touching-edge extension and configurable
   offset as a front rebate.
 - Front machining and through-cut layers remain unchanged.
+
+## 8D. Curved Open-Edge Rebate with Mitres
+
+Create one panel body with mitres on both side edges and an open-edge rebate
+whose touching edge joins an arc or other curved end geometry.
+
+### Expected Result
+
+- Both mitre guides are exported on their calculated `MITRE_*DEG` layers.
+- `CUT_OUTSIDE` follows the overall projected body dimensions rather than the
+  smaller planar face between the two mitres.
+- Through-holes are absent from `CUT_OUTSIDE` and remain on `CUT_INSIDE`.
+- One final DXF is published; category DXFs are removed after successful merge.
+- The curved rebate remains a connected path on `FRONT_REBATE_*`.
+- The rebate uses Fusion's uniform configured offset where a safe straight
+  `5 mm` contact extension cannot be constructed.
+- Export does not fail because the touching edge lacks two straight adjoining
+  edges.
 
 ## 9. Automatic Split-Front Orientation
 

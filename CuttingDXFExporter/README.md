@@ -1,7 +1,7 @@
 # Cutting DXF Exporter
 
-Current manifest version: `0.6.2`. Current visible build:
-`0.6.2-persisted-union-export`.
+Current manifest version: `0.6.5`. Current visible build:
+`0.6.5-outer-silhouette-loop`.
 
 Cutting DXF Exporter is a Windows Autodesk Fusion add-in that derives
 manufacturing DXF files from finished solid B-Rep geometry.
@@ -46,6 +46,9 @@ Uncertain boundaries remain review-only.
 - Extends straight rebate edges that touch the outside profile by `5 mm`.
   Remaining edges expand by the configurable rebate offset, defaulting to
   `0.3 mm`. Setting the offset to `0 mm` preserves the detected rebate size.
+- When a touching rebate edge ends in curved geometry that cannot be safely
+  rejoined with straight extensions, retains Fusion's connected uniform offset
+  instead of failing the complete DXF export.
 - Places each mitre guide on its angle-specific `MITRE_*DEG` layer, offset
   `0.5 mm` outward from the panel edge. Free endpoints extend `2 mm`; adjacent
   guides with the same mitre angle meet at their offset-line intersection
@@ -59,6 +62,10 @@ Uncertain boundaries remain review-only.
   filename match the new export.
 - Requires a Yes/No operator confirmation after showing the analysis.
 - Creates separate temporary sketches for every required operation/depth layer.
+- Projects the complete B-Rep body silhouette for `CUT_OUTSIDE`, so mitred or
+  fragmented support faces cannot reduce the overall cutting dimensions.
+- Keeps only the largest connected silhouette loop on `CUT_OUTSIDE`; projected
+  holes remain exclusively on `CUT_INSIDE`.
 - Exports one material/thickness-specific DXF per body when `One DXF per body`
   is checked.
 - When unchecked, combines all selected bodies into one layered DXF, arranged
@@ -81,6 +88,8 @@ Uncertain boundaries remain review-only.
 - Creates and validates cutting and front-machining layers.
 - Publishes the final DXF only after layer and entity-count validation succeeds.
 - Keeps Fusion category DXFs as backups when merge or validation fails.
+- After a later successful export, removes stale `.__fusion_*` backups reserved
+  for that same output filename.
 - Uses a numeric suffix rather than overwriting an existing output file.
 - Creates a sanitized Fusion-design-name folder, then groups body DXFs into
   physical-material subfolders inside it.
@@ -143,10 +152,10 @@ CuttingDXFExporter/
 6. Choose **Utilities > Add-Ins > Scripts and Add-Ins**.
 7. Select **CuttingDXFExporter** on the Add-Ins tab and choose **Run**.
 8. Optionally enable **Run on Startup**.
-9. Find **Export Cutting DXFs (v0.6.2)** in the Design workspace Add-Ins panel.
+9. Find **Export Cutting DXFs (v0.6.5)** in the Design workspace Add-Ins panel.
 
 For this merge-bodies build, the first row of the export dialog must show
-`0.6.2-persisted-union-export`. If it shows an older build, Fusion is loading a
+`0.6.5-outer-silhouette-loop`. If it shows an older build, Fusion is loading a
 different installed copy; stop that add-in, replace or relink its complete
 `CuttingDXFExporter` folder, and run it again.
 
@@ -306,7 +315,9 @@ exports the detected boundary without changing its size. Curved rebate sections
 retain the uniform configurable offset. In a mixed line-and-curve rebate, a
 straight edge lying on the outside profile still receives the `5 mm` extension,
 and its straight adjoining edges lengthen to meet it while the curves remain
-unchanged apart from their configurable offset. When a rebate surrounds the
+unchanged apart from their configurable offset. If either end joins curved or
+ambiguous geometry, the connected uniform offset is retained rather than
+creating a broken path or cancelling the export. When a rebate surrounds the
 entire panel, every floor loop is retained: the outer boundary receives the
 `5 mm` extension and the nested inner boundary moves inward by the configurable
 offset so the actual rebate width remains represented in the DXF.
@@ -347,9 +358,10 @@ calculated from their face normals. The layer suffix is then calculated as
 measured `45 degree` mitre therefore uses `MITRE_90DEG`; a measured
 `22.5 degree` mitre uses `MITRE_135DEG`.
 
-The largest support face remains the source for `CUT_OUTSIDE`. The straight
-mitre edge is projected separately and offset outward from the outside-profile
-centre by the `Mitre guide offset` command value, which defaults to `0.5 mm`.
+The complete body silhouette projected onto the selected manufacturing plane
+is the source for `CUT_OUTSIDE`. The straight mitre edge is projected separately
+and offset outward from the outside-profile centre by the `Mitre guide offset`
+command value, which defaults to `0.5 mm`.
 A free endpoint is extended along the line axis by `2 mm`. When two detected
 mitre edges with the same angle share an endpoint, their offset lines are
 intersected and both guides terminate at that common point instead. Meeting
@@ -367,9 +379,9 @@ Fusion operation categories are exported separately because sketch entities do
 not provide reliable custom DXF layer assignment.
 
 For a split machined front, feature boundaries are collected from every
-coplanar front fragment. The principal `CUT_OUTSIDE` loop is sourced from the
-largest full support-plane face on either side and projected into the selected
-front coordinate system.
+coplanar front fragment. `CUT_OUTSIDE` is projected from the complete body
+silhouette into the selected front coordinate system. Internal projected loops
+are removed from that layer before category export.
 
 The standard-library post-processor:
 
@@ -410,9 +422,6 @@ explicitly excluded by this project.
 - Mitre guides are limited to straight edges on planar bevel faces spanning
   the complete material thickness. Curved, partial-depth, compound, and
   non-planar mitres remain unsupported.
-- If both support sides are heavily fragmented, the largest available support
-  face may still not represent the complete cutting silhouette. Always verify
-  `CUT_OUTSIDE` before manufacturing.
 - `UNKNOWN` geometry cannot yet be enabled for export.
 - Split or unusually segmented through-hole walls may be reported as
   `UNKNOWN` even when they physically pass through.

@@ -142,18 +142,7 @@ def export_phase_three_body(
             output_path,
             merge_result.entity_counts,
         )
-        for category_path in category_paths.values():
-            try:
-                os.remove(category_path)
-            except OSError as error:
-                result.warnings.append(
-                    AnalysisWarning(
-                        code="CATEGORY_BACKUP_CLEANUP_FAILED",
-                        message=f"Could not remove {category_path}: {error}",
-                        severity=WarningSeverity.WARNING,
-                        requires_review=False,
-                    )
-                )
+        _cleanup_category_backups(material_folder, filename, result)
     except Exception as error:
         result.error_message = str(error)
         result.backup_paths = [
@@ -317,18 +306,7 @@ def export_phase_four_bodies_combined(
             len(bodies),
             merge_result.entity_counts,
         )
-        for category_path in category_paths:
-            try:
-                os.remove(category_path)
-            except OSError as error:
-                results[0].warnings.append(
-                    AnalysisWarning(
-                        code="CATEGORY_BACKUP_CLEANUP_FAILED",
-                        message=f"Could not remove {category_path}: {error}",
-                        severity=WarningSeverity.WARNING,
-                        requires_review=False,
-                    )
-                )
+        _cleanup_category_backups(output_folder, filename, results[0])
     except Exception as error:
         backup_paths = [
             path for path in category_paths
@@ -410,3 +388,38 @@ def _analysis_is_exportable(analysis: BodyAnalysis) -> bool:
         and analysis.constant_thickness
         and analysis.operation_count(OperationType.CUT_OUTSIDE) > 0
     )
+
+
+def _cleanup_category_backups(
+    folder: str,
+    filename: str,
+    result: ExportResult,
+) -> None:
+    prefix = f"{filename}.__fusion_"
+    try:
+        names = os.listdir(folder)
+    except OSError as error:
+        result.warnings.append(
+            AnalysisWarning(
+                code="CATEGORY_BACKUP_CLEANUP_FAILED",
+                message=f"Could not inspect category backups in {folder}: {error}",
+                severity=WarningSeverity.WARNING,
+                requires_review=False,
+            )
+        )
+        return
+    for name in names:
+        if not name.startswith(prefix) or not name.lower().endswith(".dxf"):
+            continue
+        path = os.path.join(folder, name)
+        try:
+            os.remove(path)
+        except OSError as error:
+            result.warnings.append(
+                AnalysisWarning(
+                    code="CATEGORY_BACKUP_CLEANUP_FAILED",
+                    message=f"Could not remove {path}: {error}",
+                    severity=WarningSeverity.WARNING,
+                    requires_review=False,
+                )
+            )

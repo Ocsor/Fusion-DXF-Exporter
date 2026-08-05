@@ -105,7 +105,11 @@ def merge_category_dxfs(
     for layer_name, removed_count in removed_counts.items():
         expected_counts[layer_name] -= removed_count
 
-    required_layers = list(category_paths.keys())
+    required_layers = [
+        layer_name
+        for layer_name in category_paths
+        if expected_counts.get(layer_name, 0) > 0
+    ]
     if markup_text:
         bounds = _layer_entity_bounds(merged_entities, "CUT_OUTSIDE")
         if not bounds:
@@ -235,6 +239,11 @@ def merge_body_category_dxfs(
     merged_entities, removed_counts = _deduplicate_cut_entities(merged_entities)
     for layer_name, removed_count in removed_counts.items():
         expected_counts[layer_name] -= removed_count
+    required_layers = [
+        layer_name
+        for layer_name in required_layers
+        if expected_counts.get(layer_name, 0) > 0
+    ]
 
     if preserve_body_positions:
         bounds = _layer_entity_bounds(merged_entities, "CUT_OUTSIDE")

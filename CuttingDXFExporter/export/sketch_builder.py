@@ -92,8 +92,11 @@ def build_phase_three_sketches(
         sketch.name = temporary_sketch_name(layer_name)
         sketch_set.sketches[layer_name] = sketch
         _remove_automatic_face_curves(sketch)
-        edges = _resolve_operation_edges(body, operations)
-        entities = _project_unlinked(sketch, edges)
+        if layer_name == OperationType.CUT_OUTSIDE.value:
+            entities = _project_body_outline(sketch, body)
+        else:
+            edges = _resolve_operation_edges(body, operations)
+            entities = _project_unlinked(sketch, edges)
         if not entities:
             raise RuntimeError(
                 f"No entities were projected for {layer_name}."
@@ -595,15 +598,12 @@ def _extend_curved_rebate_contact_lines(
             rebate_offset_internal,
         )
         if offset_line is None:
-            raise RuntimeError(
-                f"Could not identify an offset rebate edge on {layer_name}."
-            )
+            continue
         offset_line_points = _sketch_line_points(offset_line)
         if offset_line_points is None:
-            raise RuntimeError(
-                f"A rebate contact edge was not straight on {layer_name}."
-            )
+            continue
         adjacent_lines = []
+        extension_supported = True
         for endpoint in offset_line_points:
             matches = [
                 entity
@@ -613,21 +613,21 @@ def _extend_curved_rebate_contact_lines(
                 and any(_points_are_close(endpoint, point) for point in points)
             ]
             if len(matches) != 1:
-                raise RuntimeError(
-                    "A curved rebate edge touching the outside profile must "
-                    f"have one straight adjoining edge at each end on {layer_name}."
-                )
+                extension_supported = False
+                break
             adjacent_lines.append(matches[0])
+        if not extension_supported:
+            continue
+        if len({_entity_key(entity) for entity in adjacent_lines}) != 2:
+            continue
 
         desired_line = _extended_contact_line(source_line, offset_line_points)
-        replacement_adjacent_lines = []
-        contact_endpoints = []
+        replacement_specs = []
         for endpoint, adjacent_line in zip(offset_line_points, adjacent_lines):
             adjacent_points = _sketch_line_points(adjacent_line)
             if adjacent_points is None:
-                raise RuntimeError(
-                    f"A rebate adjoining edge was not straight on {layer_name}."
-                )
+                extension_supported = False
+                break
             far_endpoint = (
                 adjacent_points[1]
                 if _points_are_close(endpoint, adjacent_points[0])
@@ -635,9 +635,14 @@ def _extend_curved_rebate_contact_lines(
             )
             intersection = _line_intersection(adjacent_points, desired_line)
             if intersection is None:
-                raise RuntimeError(
-                    f"A rebate adjoining edge is parallel on {layer_name}."
-                )
+                extension_supported = False
+                break
+            replacement_specs.append((far_endpoint, intersection))
+        if not extension_supported:
+            continue
+
+        replacement_adjacent_lines = []
+        for far_endpoint, intersection in replacement_specs:
             replacement = sketch.sketchCurves.sketchLines.addByTwoPoints(
                 adsk.core.Point3D.create(far_endpoint[0], far_endpoint[1], 0.0),
                 adsk.core.Point3D.create(intersection[0], intersection[1], 0.0),
@@ -647,17 +652,16 @@ def _extend_curved_rebate_contact_lines(
                     f"Fusion did not extend a rebate side edge on {layer_name}."
                 )
             replacement_adjacent_lines.append(replacement)
-            contact_endpoints.append(intersection)
 
         replacement_contact_line = sketch.sketchCurves.sketchLines.addByTwoPoints(
             adsk.core.Point3D.create(
-                contact_endpoints[0][0],
-                contact_endpoints[0][1],
+                replacement_specs[0][1][0],
+                replacement_specs[0][1][1],
                 0.0,
             ),
             adsk.core.Point3D.create(
-                contact_endpoints[1][0],
-                contact_endpoints[1][1],
+                replacement_specs[1][1][0],
+                replacement_specs[1][1][1],
                 0.0,
             ),
         )
@@ -1088,6 +1092,37 @@ def _project_unlinked(sketch: Any, edges: List[Any]) -> List[Any]:
         if getattr(entity, "isReference", False):
             entity.isReference = False
     return entities
+
+
+def _project_body_outline(sketch: Any, body: Any) -> List[Any]:
+    project2 = getattr(sketch, "project2", None)
+    if not callable(project2):
+        raise RuntimeError(
+            "This Fusion build cannot project a complete body silhouette. "
+            "Update Fusion and try again."
+        )
+    entities = list(project2([body], False))
+    if not entities:
+        raise RuntimeError("Fusion did not project the overall body silhouette.")
+    connected_groups = _connected_curve_groups(sketch, entities)
+    if not connected_groups:
+        raise RuntimeError("Fusion did not create a connected body silhouette.")
+    outside_group = max(
+        connected_groups,
+        key=_entity_group_bounding_area,
+    )
+    outside_keys = {_entity_key(entity) for entity in outside_group}
+    for entity in entities:
+        if _entity_key(entity) not in outside_keys and not entity.deleteMe():
+            raise RuntimeError(
+                "Fusion could not remove an internal silhouette loop from CUT_OUTSIDE."
+            )
+    return outside_group
+
+
+def _entity_group_bounding_area(entities: Iterable[Any]) -> float:
+    minimum_x, minimum_y, maximum_x, maximum_y = _entity_bounds(entities)
+    return (maximum_x - minimum_x) * (maximum_y - minimum_y)
 
 
 def _stable_axis_rotation(sketch: Any, analysis: BodyAnalysis) -> float:
