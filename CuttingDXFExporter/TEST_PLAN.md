@@ -3,7 +3,7 @@
 ## Test Environment
 
 - Current Autodesk Fusion for Windows.
-- Add-in build `0.5.2-merge-component-name`.
+- Add-in build `0.6.2-persisted-union-export`.
 - A new parametric Design.
 - Default tolerance `0.01 mm`.
 - An empty writable output folder.
@@ -239,10 +239,10 @@ Clear `One DXF per body` and export the same selection again.
 - **Analyse and Review** remains disabled.
 - Selecting exactly one planar face per body enables it.
 
-## 12A. Merge Two Aligned Bodies
+## 12A. Temporarily Union Two Bodies
 
-Create two separate flat solid bodies on the same front manufacturing plane,
-positioned with a measurable gap between them.
+Create an MDF body and a thinner ACM body stacked directly against it as two
+touching solids in the same component. Apply one continuous mitre through both.
 
 1. Select both bodies.
 2. Enable **Merge Bodies**.
@@ -253,21 +253,18 @@ positioned with a measurable gap between them.
 
 - **Merge Bodies** is unchecked when the command first opens.
 - Exactly two bodies and one reference face are required.
-- The second body's parallel, same-facing front face is found automatically.
+- The review contains one combined-body analysis rather than two analyses.
+- The persisted union is accepted as a valid solid and does not report
+  `INVALID_BODY_REFERENCE` or `Utils::getObjectPath`.
+- The detected thickness is the total MDF and ACM thickness.
 - When both bodies share a component, one DXF named directly from that
   component is created.
-- Bodies from different components use the configured merged filename format.
-- Both profiles retain the same gap and relative position as the Fusion model.
-- Through-cuts and machining layers stay aligned with their source body.
-
-Repeat with an MDF body and a thinner ACM body stacked directly against it.
-Apply matching mitres through both bodies and select the exposed front face of
-either material as the merge reference.
-
-- The depth offset between the two selected faces is accepted.
-- The projected outside profiles and mitre guides remain aligned.
-- Selecting bodies without parallel manufacturing faces reports that no
-  aligned front face was found.
+- The DXF contains one combined outside profile and no material-interface path.
+- The mitre is analysed once through the total combined thickness.
+- The two original bodies remain unchanged after export or cancellation.
+- No temporary union body or timeline feature remains in the design.
+- Repeating with a gap between the bodies reports that Fusion could not combine
+  them because they do not touch or overlap.
 
 ## 13. Operator Cancellation
 

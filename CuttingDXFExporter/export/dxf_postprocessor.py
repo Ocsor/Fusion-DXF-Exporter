@@ -4,7 +4,7 @@ import math
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 GroupPair = Tuple[int, str]
 LAYER_COLORS = {
@@ -19,6 +19,7 @@ LAYER_COLORS = {
     "markups": 2,
 }
 MARKUP_LAYER = "markups"
+CUT_DEDUPLICATION_TOLERANCE = 1e-5
 
 
 @dataclass
@@ -99,6 +100,10 @@ def merge_category_dxfs(
             raise ValueError(f"{layer_name} DXF contains no exportable entities.")
         merged_entities.extend(layered_entities)
         expected_counts[layer_name] = entity_count
+
+    merged_entities, removed_counts = _deduplicate_cut_entities(merged_entities)
+    for layer_name, removed_count in removed_counts.items():
+        expected_counts[layer_name] -= removed_count
 
     required_layers = list(category_paths.keys())
     if markup_text:
@@ -226,6 +231,10 @@ def merge_body_category_dxfs(
             )
             if layer_name not in required_layers:
                 required_layers.append(layer_name)
+
+    merged_entities, removed_counts = _deduplicate_cut_entities(merged_entities)
+    for layer_name, removed_count in removed_counts.items():
+        expected_counts[layer_name] -= removed_count
 
     if preserve_body_positions:
         bounds = _layer_entity_bounds(merged_entities, "CUT_OUTSIDE")
@@ -423,6 +432,98 @@ def _set_record_layer(
             updated[index] = (8, layer_name)
             return updated
     return [updated[0], (8, layer_name)] + updated[1:]
+
+
+def _deduplicate_cut_entities(
+    pairs: Sequence[GroupPair],
+) -> Tuple[List[GroupPair], Dict[str, int]]:
+    cut_layers = {"CUT_OUTSIDE", "CUT_INSIDE"}
+    records = _entity_records(pairs)
+    outside_signatures = {
+        signature
+        for record in records
+        if _record_layer(record) == "CUT_OUTSIDE"
+        and (signature := _entity_geometry_signature(record)) is not None
+    }
+    seen_signatures = {layer_name: set() for layer_name in cut_layers}
+    removed_counts: Dict[str, int] = {}
+    deduplicated: List[GroupPair] = []
+    for record in records:
+        layer_name = _record_layer(record)
+        if layer_name not in cut_layers:
+            deduplicated.extend(record)
+            continue
+        signature = _entity_geometry_signature(record)
+        duplicate = bool(
+            signature is not None
+            and (
+                signature in seen_signatures[layer_name]
+                or (
+                    layer_name == "CUT_INSIDE"
+                    and signature in outside_signatures
+                )
+            )
+        )
+        if duplicate:
+            removed_counts[layer_name] = removed_counts.get(layer_name, 0) + 1
+            continue
+        if signature is not None:
+            seen_signatures[layer_name].add(signature)
+        deduplicated.extend(record)
+    return deduplicated, removed_counts
+
+
+def _record_layer(record: Sequence[GroupPair]) -> str:
+    return next(
+        (value.strip() for code, value in record if code == 8),
+        "",
+    )
+
+
+def _entity_geometry_signature(
+    record: Sequence[GroupPair],
+) -> Optional[Tuple[Any, ...]]:
+    if not record:
+        return None
+    entity_type = record[0][1].strip().upper()
+    ignored_codes = {5, 6, 8, 48, 62, 100, 330, 370, 410}
+    geometry = tuple(
+        (code, _canonical_geometry_value(value))
+        for code, value in record[1:]
+        if code not in ignored_codes
+    )
+    if entity_type == "LINE":
+        start = _record_point(record, 10)
+        end = _record_point(record, 11)
+        if start is not None and end is not None:
+            return entity_type, tuple(sorted((start, end)))
+    return entity_type, geometry
+
+
+def _record_point(
+    record: Sequence[GroupPair],
+    x_code: int,
+) -> Optional[Tuple[int, int, int]]:
+    coordinates = []
+    for code in (x_code, x_code + 10, x_code + 20):
+        value = next((item for item_code, item in record if item_code == code), "0")
+        try:
+            coordinates.append(_quantized_geometry_number(float(value.strip())))
+        except ValueError:
+            return None
+    return tuple(coordinates)
+
+
+def _canonical_geometry_value(value: str) -> Any:
+    stripped = value.strip()
+    try:
+        return _quantized_geometry_number(float(stripped))
+    except ValueError:
+        return stripped.upper()
+
+
+def _quantized_geometry_number(value: float) -> int:
+    return int(round(value / CUT_DEDUPLICATION_TOLERANCE))
 
 
 def _layer_entity_bounds(

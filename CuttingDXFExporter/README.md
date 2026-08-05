@@ -1,7 +1,7 @@
 # Cutting DXF Exporter
 
-Current manifest version: `0.5.2`. Current visible build:
-`0.5.2-merge-component-name`.
+Current manifest version: `0.6.2`. Current visible build:
+`0.6.2-persisted-union-export`.
 
 Cutting DXF Exporter is a Windows Autodesk Fusion add-in that derives
 manufacturing DXF files from finished solid B-Rep geometry.
@@ -63,12 +63,15 @@ Uncertain boundaries remain review-only.
   is checked.
 - When unchecked, combines all selected bodies into one layered DXF, arranged
   left-to-right with a `10 mm` gap.
-- Provides an unchecked `Merge Bodies` option for exactly two bodies. One
-  selected planar face defines a shared export plane, and the matching
-  parallel front face on the other body is detected automatically.
-- Merge mode preserves the two bodies' positions relative to each other rather
-  than arranging them side-by-side. The faces may be offset in depth, allowing
-  stacked materials such as MDF with an ACM skin to share one DXF projection.
+- Provides an unchecked `Merge Bodies` option for exactly two touching bodies.
+  Fusion copies and boolean-unions them, then briefly persists the result in a
+  disposable hidden Base Feature so sketch projection can export it. Interfaces
+  between stacked materials are removed at the source.
+- One selected exposed planar face defines the combined body's manufacturing
+  orientation. This supports stacked materials such as MDF with an ACM skin and
+  detects a mitre through the total combined thickness.
+- Removes identical duplicate entities within `CUT_OUTSIDE` or `CUT_INSIDE`.
+  When the same entity occurs on both layers, the `CUT_OUTSIDE` copy is kept.
 - Uses `Sketch.project2(..., False)` where available to preserve lines, circles,
   arcs, ellipses, and splines as native sketch curves.
 - Uses the stable face X axis, then moves the outside-profile minimum to `0,0`.
@@ -140,10 +143,10 @@ CuttingDXFExporter/
 6. Choose **Utilities > Add-Ins > Scripts and Add-Ins**.
 7. Select **CuttingDXFExporter** on the Add-Ins tab and choose **Run**.
 8. Optionally enable **Run on Startup**.
-9. Find **Export Cutting DXFs (v0.5.2)** in the Design workspace Add-Ins panel.
+9. Find **Export Cutting DXFs (v0.6.2)** in the Design workspace Add-Ins panel.
 
 For this merge-bodies build, the first row of the export dialog must show
-`0.5.2-merge-component-name`. If it shows an older build, Fusion is loading a
+`0.6.2-persisted-union-export`. If it shows an older build, Fusion is loading a
 different installed copy; stop that add-in, replace or relink its complete
 `CuttingDXFExporter` folder, and run it again.
 
@@ -160,10 +163,9 @@ For development, keep the folder anywhere and use the `+` command in
 6. Set a filename format using `{component}` and `{body}`.
    The detected thickness suffix is added automatically.
 7. Choose whether to create one DXF per body or one combined DXF.
-8. To preserve two bodies in their model positions, enable **Merge Bodies**
-   and select one planar front face from either selected body. The other body
-   must have a parallel, same-facing manufacturing face; it may be offset in
-   depth for stacked material layers.
+8. To union two stacked material bodies, enable **Merge Bodies** and select one
+   exposed planar front face from either selected body. The bodies must touch
+   or overlap so Fusion can form one solid.
 9. Choose whether to include front machining, rear machining, and
    depth-specific layer names.
 10. Optionally enable CSV and diagnostic JSON reports.
@@ -221,15 +223,15 @@ and `Selected_Bodies` for `{body}`. The default template therefore creates:
 Combined files do not receive a thickness suffix because selected bodies may
 use different materials or thicknesses.
 
-With `Merge Bodies` checked, exactly two bodies and one planar reference face
-are required. The add-in finds a same-facing parallel front face on the second
-body, even when it is offset in depth. When both bodies belong to the same
-component, the DXF uses that component name directly, for example
-`Cabinet_Panel.dxf`. Bodies from different components retain the configured
-merged filename format. Geometry from both bodies retains its position in the
-selected face's coordinate system. This combines both body profiles into one
-DXF; it does not perform a solid boolean union, so a boundary shared by two
-touching bodies remains represented.
+With `Merge Bodies` checked, exactly two touching bodies and one exposed planar
+reference face are required. The add-in makes transient copies, performs a
+Fusion solid union, and places the result in a hidden disposable Base Feature
+for analysis and sketch projection. The Base Feature is deleted in the command
+cleanup path. When both source bodies belong to the same component, the DXF
+uses that component name directly, for example `Cabinet_Panel.dxf`. Bodies
+from different components use `Merged_Selected_Bodies.dxf`. No interface
+profile between MDF and ACM is exported because it no longer exists in the
+union body.
 
 The following session files are written directly in the version-free
 Fusion-design folder, alongside the material folders:
@@ -381,11 +383,13 @@ The standard-library post-processor:
    collisions between separately exported Fusion category files.
 7. Advances `$HANDSEED` beyond every generated object handle.
 8. Assigns every category entity to its required layer.
-9. Replaces only the `ENTITIES` section in the base structure.
-10. Writes a sibling temporary file.
-11. Re-reads it and validates layers, subclass metadata, unique handles, and
+9. Removes identical cut entities, preferring `CUT_OUTSIDE` when the same
+   geometry also occurs on `CUT_INSIDE`.
+10. Replaces only the `ENTITIES` section in the base structure.
+11. Writes a sibling temporary file.
+12. Re-reads it and validates layers, subclass metadata, unique handles, and
     entity counts.
-12. Atomically replaces the final output path only after validation.
+13. Atomically replaces the final output path only after validation.
 
 If this process fails, files named like
 `Part.__fusion_CUT_OUTSIDE.dxf` are retained as unmodified Fusion backups.
@@ -432,6 +436,8 @@ namespace. Import failures are shown in Fusion and appended to:
 ## Safety Guarantees
 
 The add-in never modifies or deletes original bodies, components, sketches, or
-timeline features. Phase 4 temporarily creates root-component sketches and
-deletes only the exact sketch objects it created. Disabling cleanup deliberately
-leaves those named `DXF_TEMP_*` sketches for inspection.
+timeline features belonging to the user. Merge mode creates a hidden temporary
+Base Feature containing the copied union and deletes that exact feature on
+success, cancellation, or failure. Phase 4 temporarily creates root-component
+sketches and deletes only the exact sketch objects it created. Disabling cleanup
+deliberately leaves those named `DXF_TEMP_*` sketches for inspection.

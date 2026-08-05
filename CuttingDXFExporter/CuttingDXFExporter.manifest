@@ -5,7 +5,7 @@
   "description": {
     "": "Analyses flat solid bodies before manufacturing DXF export."
   },
-  "version": "0.5.2",
+  "version": "0.6.2",
   "runOnStartup": false,
   "supportedOS": "windows",
   "editEnabled": true

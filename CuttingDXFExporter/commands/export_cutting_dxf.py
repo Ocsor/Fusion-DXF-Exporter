@@ -12,6 +12,7 @@ from ..analysis.body_analyser import (
     analyse_body,
 )
 from ..analysis.face_analyser import (
+    collect_coplanar_support_faces,
     collect_planar_faces,
     largest_planar_face,
     record_for_manual_face,
@@ -29,15 +30,18 @@ from ..utilities.file_utils import (
 )
 from ..utilities.fusion_utils import (
     active_design,
+    body_component_name,
+    body_display_name,
     body_identity,
+    body_material_name,
     design_name,
     entity_token,
     format_analysis_summary,
     selected_bodies,
     show_error,
     temp_id,
+    temporary_union_body,
 )
-from ..utilities.geometry_utils import are_parallel, dot
 from ..utilities.logging_utils import (
     configure_session_logger,
     finish_session,
@@ -49,8 +53,8 @@ from ..utilities.reporting_utils import (
 )
 
 COMMAND_ID = "CuttingDXFExporter_ExportCuttingDXFs"
-ADDIN_VERSION = "0.5.2-merge-component-name"
-COMMAND_NAME = "Export Cutting DXFs (v0.5.2)"
+ADDIN_VERSION = "0.6.2-persisted-union-export"
+COMMAND_NAME = "Export Cutting DXFs (v0.6.2)"
 COMMAND_DESCRIPTION = (
     "Analyse finished solid bodies before creating manufacturing DXF files. "
     f"Build {ADDIN_VERSION}."
@@ -260,8 +264,8 @@ class CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
                 False,
             )
             merge_bodies.tooltip = (
-                "Merge exactly two aligned bodies, including stacked material "
-                "layers. Select one front face to define the shared DXF plane."
+                "Temporarily union copies of exactly two touching bodies, then "
+                "analyse and export the combined solid. The originals are unchanged."
             )
 
             bodies = inputs.addSelectionInput(
@@ -478,6 +482,7 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
         ui = application.userInterface
         logger = get_logger()
         outcome = "failed"
+        temporary_union = None
         try:
             command_inputs = args.command.commandInputs
             selected_output_folder = validate_output_folder(
@@ -498,28 +503,42 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
             )
 
             body_input = command_inputs.itemById(BODY_INPUT_ID)
-            bodies = selected_bodies(body_input)
+            selected_body_list = selected_bodies(body_input)
             mode_input = command_inputs.itemById(FACE_MODE_INPUT_ID)
             mode = mode_input.selectedItem.name if mode_input.selectedItem else FACE_MODES[1]
             manual_input = command_inputs.itemById(MANUAL_FACE_INPUT_ID)
             tolerance_internal = command_inputs.itemById(TOLERANCE_INPUT_ID).value
             merge_bodies = command_inputs.itemById(MERGE_BODIES_INPUT_ID).value
             merge_reference_face = None
-            merge_front_faces = None
+            merge_manual_face = None
+            merged_component_name = None
+            merged_material_name = None
             if merge_bodies:
                 merge_face_input = command_inputs.itemById(MERGE_FACE_INPUT_ID)
                 merge_reference_face = adsk.fusion.BRepFace.cast(
                     merge_face_input.selection(0).entity
                 )
-                merge_front_faces = _merge_front_faces(
-                    bodies,
+                merged_component_name, merged_material_name = _merge_metadata(
+                    selected_body_list
+                )
+                temporary_union = temporary_union_body(
+                    design,
+                    selected_body_list,
+                )
+                combined_body = temporary_union.body
+                merge_manual_face = _combined_reference_face(
+                    selected_body_list,
                     merge_reference_face,
+                    combined_body,
                     tolerance_internal,
                 )
+                bodies = [combined_body]
+            else:
+                bodies = selected_body_list
 
             logger.info(
                 "Selected bodies=%d mode=%s tolerance_internal=%s",
-                len(bodies),
+                len(selected_body_list),
                 mode,
                 tolerance_internal,
             )
@@ -528,14 +547,18 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
                 logger.info(
                     "Analysing selection=%d component=%s body=%s token=%s",
                     selection_index,
-                    getattr(getattr(body, "parentComponent", None), "name", "unknown"),
-                    body.name,
+                    merged_component_name or getattr(
+                        getattr(body, "parentComponent", None),
+                        "name",
+                        "unknown",
+                    ),
+                    body_display_name(body),
                     entity_token(body),
                 )
                 try:
                     manual_face = (
-                        merge_front_faces[selection_index]
-                        if merge_front_faces is not None
+                        merge_manual_face
+                        if merge_bodies
                         else _manual_face_for_body(manual_input, body)
                         if mode == FACE_MODES[1]
                         else None
@@ -550,6 +573,9 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
                         ),
                         tolerance_internal=tolerance_internal,
                         manual_front_face=manual_face,
+                        component_name_override=merged_component_name,
+                        body_name_override=merged_component_name,
+                        material_name_override=merged_material_name,
                     )
                     analyses.append(analysis)
                     logger.info(
@@ -561,7 +587,15 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
                         "Body analysis failed for selection %d.", selection_index
                     )
                     analyses.append(
-                        _failed_analysis(design, body, selection_index, mode, body_error)
+                        _failed_analysis(
+                            design,
+                            body,
+                            selection_index,
+                            mode,
+                            body_error,
+                            component_name_override=merged_component_name,
+                            material_name_override=merged_material_name,
+                        )
                     )
 
             review_result = ui.messageBox(
@@ -604,11 +638,6 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
                 REBATE_OFFSET_INPUT_ID
             ).value
             if merge_bodies:
-                reference_body_index = next(
-                    index
-                    for index, body in enumerate(bodies)
-                    if _face_belongs_to_body(merge_reference_face, body)
-                )
                 export_results = export_phase_four_bodies_combined(
                     design=design,
                     bodies=bodies,
@@ -623,7 +652,7 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
                     delete_temporary_sketches=delete_temporary_sketches,
                     logger=logger,
                     merge_reference_face=merge_reference_face,
-                    merge_reference_analysis=analyses[reference_body_index],
+                    merge_reference_analysis=analyses[0],
                 )
                 for export_result in export_results:
                     logger.info(
@@ -724,6 +753,14 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
             logger.exception("Analysis command failed.")
             show_error(ui, "Cutting DXF Exporter", error)
         finally:
+            if temporary_union:
+                cleanup_error = temporary_union.cleanup()
+                if cleanup_error:
+                    logger.error(cleanup_error)
+                    ui.messageBox(
+                        cleanup_error,
+                        "Cutting DXF Exporter — Cleanup Warning",
+                    )
             finish_session(logger, outcome)
 
 
@@ -787,11 +824,12 @@ def _manual_faces_cover_bodies(
     return all(_manual_face_for_body(manual_input, body) is not None for body in bodies)
 
 
-def _merge_front_faces(
+def _combined_reference_face(
     bodies: List[adsk.fusion.BRepBody],
     reference_face: adsk.fusion.BRepFace,
-    _tolerance_internal: float,
-) -> List[adsk.fusion.BRepFace]:
+    combined_body: adsk.fusion.BRepBody,
+    tolerance_internal: float,
+) -> adsk.fusion.BRepFace:
     if len(bodies) != 2 or not reference_face:
         raise ValueError("Merge Bodies requires exactly two bodies and one face.")
     reference_body = next(
@@ -806,30 +844,41 @@ def _merge_front_faces(
     )
     if not reference_record:
         raise ValueError("The merge reference face must be planar.")
+    candidates = collect_coplanar_support_faces(
+        reference_record,
+        collect_planar_faces(combined_body),
+        tolerance_internal,
+        DEFAULT_ANGULAR_TOLERANCE_RADIANS,
+    )
+    match = largest_planar_face(candidates)
+    if not match:
+        raise RuntimeError(
+            "The selected reference plane was not found on the temporary "
+            "combined body. Select an exposed front face and try again."
+        )
+    return match.face
 
-    matched_faces = []
-    for body in bodies:
-        if _face_belongs_to_body(reference_face, body):
-            matched_faces.append(reference_face)
-            continue
-        candidates = [
-            record
-            for record in collect_planar_faces(body)
-            if are_parallel(
-                reference_record.normal,
-                record.normal,
-                DEFAULT_ANGULAR_TOLERANCE_RADIANS,
-            )
-            and dot(reference_record.normal, record.normal) > 0.0
-        ]
-        match = largest_planar_face(candidates)
-        if not match:
-            raise ValueError(
-                f"{body.name} has no parallel front face aligned with the "
-                "selected merge reference face."
-            )
-        matched_faces.append(match.face)
-    return matched_faces
+
+def _merge_metadata(
+    bodies: List[adsk.fusion.BRepBody],
+) -> tuple:
+    component_names = {
+        body_component_name(body).strip()
+        for body in bodies
+        if body_component_name(body).strip()
+    }
+    component_name = (
+        next(iter(component_names))
+        if len(component_names) == 1
+        else "Merged_Selected_Bodies"
+    )
+    material_names = {
+        body_material_name(body).strip()
+        for body in bodies
+        if body_material_name(body).strip()
+    }
+    material_name = " + ".join(sorted(material_names)) or "Combined materials"
+    return component_name, material_name
 
 
 def _face_belongs_to_body(
@@ -871,6 +920,8 @@ def _failed_analysis(
     selection_index: int,
     mode: str,
     error: Exception,
+    component_name_override: Optional[str] = None,
+    material_name_override: Optional[str] = None,
 ):
     from ..models.analysis_models import (
         AnalysisWarning,
@@ -879,19 +930,20 @@ def _failed_analysis(
     )
     from ..utilities.fusion_utils import (
         body_component_name,
+        body_display_name,
         body_material_name,
         design_name,
     )
 
     return BodyAnalysis(
         design_name=design_name(design),
-        component_name=body_component_name(body),
-        body_name=str(body.name),
+        component_name=component_name_override or body_component_name(body),
+        body_name=component_name_override or body_display_name(body),
         body_token=body_identity(body, selection_index),
         selection_index=selection_index,
         valid_solid=False,
         face_selection_mode=mode,
-        material_name=body_material_name(body),
+        material_name=material_name_override or body_material_name(body),
         warnings=[
             AnalysisWarning(
                 code="UNEXPECTED_ANALYSIS_ERROR",

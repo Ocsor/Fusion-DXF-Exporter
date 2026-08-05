@@ -27,6 +27,7 @@ from ..models.analysis_models import (
 )
 from ..utilities.fusion_utils import (
     body_component_name,
+    body_display_name,
     body_identity,
     body_material_name,
     design_name,
@@ -48,20 +49,27 @@ def analyse_body(
     face_selection_mode: str,
     tolerance_internal: float,
     manual_front_face: Optional[Any] = None,
+    component_name_override: Optional[str] = None,
+    body_name_override: Optional[str] = None,
+    material_name_override: Optional[str] = None,
 ) -> BodyAnalysis:
     """Analyse one selected body without changing the design."""
 
     analysis = BodyAnalysis(
         design_name=design_name(design),
-        component_name=body_component_name(body),
-        body_name=str(getattr(body, "name", f"Body {selection_index + 1}")),
+        component_name=(
+            component_name_override or body_component_name(body)
+        ),
+        body_name=(
+            body_name_override or body_display_name(body)
+        ),
         body_token=body_identity(body, selection_index),
         selection_index=selection_index,
         valid_solid=False,
         face_selection_mode=face_selection_mode,
-        material_name=body_material_name(body),
+        material_name=(material_name_override or body_material_name(body)),
     )
-    if not getattr(body, "isValid", True):
+    if not _is_temporary_body(body) and not getattr(body, "isValid", True):
         _warn(
             analysis,
             "INVALID_BODY_REFERENCE",
@@ -261,6 +269,16 @@ def analyse_body(
         True,
     )
     return analysis
+
+
+def _is_temporary_body(body: Any) -> bool:
+    for property_name in ("isTemporary", "isTransient"):
+        try:
+            if bool(getattr(body, property_name)):
+                return True
+        except Exception:
+            continue
+    return False
 
 
 def _choose_automatic_front_side(

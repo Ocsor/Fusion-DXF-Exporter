@@ -42,7 +42,119 @@ def body_identity(body: adsk.fusion.BRepBody, selection_index: int) -> str:
     if token:
         return token
     component_name = body_component_name(body)
-    return f"{component_name}|{body.name}|selection-{selection_index}"
+    return f"{component_name}|{body_display_name(body)}|selection-{selection_index}"
+
+
+def body_display_name(body: adsk.fusion.BRepBody) -> str:
+    """Return a safe body name for persistent or temporary B-Rep bodies."""
+
+    try:
+        name = str(body.name or "").strip()
+        if name:
+            return name
+    except Exception:
+        pass
+    return "Temporary Combined Body"
+
+
+class TemporaryUnionBody:
+    """Persisted union body and the exact feature used to remove it."""
+
+    def __init__(
+        self,
+        body: adsk.fusion.BRepBody,
+        base_feature: Optional[Any] = None,
+    ) -> None:
+        self.body = body
+        self.base_feature = base_feature
+
+    def cleanup(self) -> Optional[str]:
+        try:
+            if self.base_feature and getattr(self.base_feature, "isValid", False):
+                if not self.base_feature.deleteMe():
+                    return "Fusion did not delete the temporary union Base Feature."
+                return None
+            if self.body and getattr(self.body, "isValid", False):
+                if not self.body.deleteMe():
+                    return "Fusion did not delete the temporary union body."
+        except Exception as error:
+            return f"Could not delete the temporary union body: {error}"
+        return None
+
+
+def temporary_union_body(
+    design: adsk.fusion.Design,
+    bodies: Iterable[adsk.fusion.BRepBody],
+) -> TemporaryUnionBody:
+    """Create a disposable persisted union while preserving the source bodies."""
+
+    source_bodies = list(bodies)
+    if len(source_bodies) != 2:
+        raise ValueError("Temporary body union requires exactly two bodies.")
+    manager = adsk.fusion.TemporaryBRepManager.get()
+    if not manager:
+        raise RuntimeError("Fusion did not provide a TemporaryBRepManager.")
+    target_body = manager.copy(source_bodies[0])
+    tool_body = manager.copy(source_bodies[1])
+    if not target_body or not tool_body:
+        raise RuntimeError("Fusion could not copy the selected bodies for merging.")
+    if not manager.booleanOperation(
+        target_body,
+        tool_body,
+        adsk.fusion.BooleanTypes.UnionBooleanType,
+    ):
+        raise RuntimeError(
+            "Fusion could not combine the copied bodies. Ensure the selected "
+            "bodies touch or overlap without a gap."
+        )
+    if not target_body.isSolid:
+        raise RuntimeError("The temporary combined body is not a closed solid.")
+    if target_body.lumps.count != 1:
+        raise RuntimeError(
+            "The copied bodies did not form one connected solid. Ensure they "
+            "touch or overlap without a gap."
+        )
+    root_component = design.rootComponent
+    if design.designType == adsk.fusion.DesignTypes.ParametricDesignType:
+        base_feature = root_component.features.baseFeatures.add()
+        if not base_feature:
+            raise RuntimeError("Fusion could not create a temporary Base Feature.")
+        base_feature.name = "DXF_TEMP_MERGED_BODY"
+        try:
+            if not base_feature.startEdit():
+                raise RuntimeError("Fusion could not edit the temporary Base Feature.")
+            source_body = root_component.bRepBodies.add(target_body, base_feature)
+            if not source_body:
+                raise RuntimeError("Fusion could not persist the temporary union body.")
+            if not base_feature.finishEdit():
+                raise RuntimeError("Fusion could not finish the temporary Base Feature.")
+            if base_feature.bodies.count < 1:
+                raise RuntimeError("The temporary Base Feature has no result body.")
+            persisted_body = base_feature.bodies.item(0)
+            _prepare_temporary_union_body(persisted_body)
+            return TemporaryUnionBody(persisted_body, base_feature)
+        except Exception:
+            try:
+                base_feature.finishEdit()
+            except Exception:
+                pass
+            try:
+                if getattr(base_feature, "isValid", False):
+                    base_feature.deleteMe()
+            except Exception:
+                pass
+            raise
+
+    persisted_body = root_component.bRepBodies.add(target_body)
+    if not persisted_body:
+        raise RuntimeError("Fusion could not persist the temporary union body.")
+    _prepare_temporary_union_body(persisted_body)
+    return TemporaryUnionBody(persisted_body)
+
+
+def _prepare_temporary_union_body(body: adsk.fusion.BRepBody) -> None:
+    body.name = "DXF_TEMP_MERGED_BODY"
+    body.isLightBulbOn = False
 
 
 def body_component_name(body: adsk.fusion.BRepBody) -> str:
