@@ -25,6 +25,7 @@ REBATE_EDGE_EXTENSION_INTERNAL = 0.5
 REBATE_CONTACT_TOLERANCE_INTERNAL = 0.001
 MITRE_EXTENSION_INTERNAL = 0.2
 MITRE_ENDPOINT_TOLERANCE_INTERNAL = 0.001
+REVERSE_MITRE_PREFIX = "REVERSE_MITRE"
 
 
 @dataclass
@@ -107,6 +108,8 @@ def build_phase_three_sketches(
     outside_sketch = sketch_set.sketches[outside_layer]
     _prepare_rebate_geometry(sketch_set, rebate_offset_internal)
     _prepare_mitre_guides(
+        design,
+        sketch_plane_face,
         sketch_set,
         outside_layer,
         mitre_offset_internal,
@@ -818,6 +821,8 @@ def _entity_key(entity: Any) -> str:
 
 
 def _prepare_mitre_guides(
+    design: Any,
+    sketch_plane_face: Any,
     sketch_set: TemporarySketchSet,
     outside_layer: str,
     mitre_offset_internal: float,
@@ -838,35 +843,70 @@ def _prepare_mitre_guides(
     )
     centre_x = (minimum_x + maximum_x) / 2.0
     centre_y = (minimum_y + maximum_y) / 2.0
+    outside_lines = [
+        points
+        for entity in outside_entities
+        if (points := _sketch_line_points(entity)) is not None
+    ]
     source_records = [
         (layer_name, entity)
         for layer_name in mitre_layers
         for entity in sketch_set.entities[layer_name]
     ]
-    source_lines = []
-    for _, entity in source_records:
+    guide_source_lines = []
+    output_layers = []
+    for layer_name, entity in source_records:
         sketch_line = adsk.fusion.SketchLine.cast(entity)
         if not sketch_line:
             raise RuntimeError("A detected mitre edge did not project as a line.")
         start = sketch_line.startSketchPoint.geometry
         end = sketch_line.endSketchPoint.geometry
-        source_lines.append(
-            (
-                (float(start.x), float(start.y)),
-                (float(end.x), float(end.y)),
-            )
+        source_line = (
+            (float(start.x), float(start.y)),
+            (float(end.x), float(end.y)),
+        )
+        outside_match = _nearest_parallel_outside_line(
+            source_line,
+            outside_lines,
+        )
+        reverse_mitre = bool(
+            outside_match
+            and outside_match[1] > MITRE_ENDPOINT_TOLERANCE_INTERNAL
+        )
+        guide_source_lines.append(
+            outside_match[0] if reverse_mitre else source_line
+        )
+        output_layers.append(
+            _reverse_mitre_layer_name(layer_name)
+            if reverse_mitre
+            else layer_name
         )
 
     guide_segments = _mitre_guide_segments(
-        source_lines,
+        guide_source_lines,
         (centre_x, centre_y),
         mitre_offset_internal,
-        mitre_angle_keys=[layer_name for layer_name, _ in source_records],
+        mitre_angle_keys=output_layers,
     )
     guide_entities = {layer_name: [] for layer_name in mitre_layers}
-    for source_record, guide_segment in zip(source_records, guide_segments):
+    for layer_name in output_layers:
+        if layer_name not in guide_entities:
+            guide_entities[layer_name] = []
+            sketch = design.rootComponent.sketches.add(sketch_plane_face)
+            if not sketch:
+                raise RuntimeError(
+                    f"Fusion did not create {temporary_sketch_name(layer_name)}."
+                )
+            sketch.name = temporary_sketch_name(layer_name)
+            _remove_automatic_face_curves(sketch)
+            sketch_set.sketches[layer_name] = sketch
+    for source_record, output_layer, guide_segment in zip(
+        source_records,
+        output_layers,
+        guide_segments,
+    ):
         layer_name, entity = source_record
-        sketch = sketch_set.sketches[layer_name]
+        sketch = sketch_set.sketches[output_layer]
         sketch_line = adsk.fusion.SketchLine.cast(entity)
         guide_start_xy, guide_end_xy = guide_segment
         guide_start = adsk.core.Point3D.create(
@@ -887,9 +927,75 @@ def _prepare_mitre_guides(
             raise RuntimeError("Fusion did not create a MITRE guide line.")
         if not sketch_line.deleteMe():
             raise RuntimeError("Fusion did not replace a projected mitre edge.")
-        guide_entities[layer_name].append(guide)
+        guide_entities[output_layer].append(guide)
     for layer_name, entities in guide_entities.items():
-        sketch_set.entities[layer_name] = entities
+        if entities:
+            sketch_set.entities[layer_name] = entities
+            continue
+        sketch = sketch_set.sketches.pop(layer_name)
+        sketch_set.entities.pop(layer_name, None)
+        if not sketch.deleteMe():
+            raise RuntimeError(f"Fusion did not remove empty {layer_name} sketch.")
+
+
+def _reverse_mitre_layer_name(layer_name: str) -> str:
+    suffix = layer_name[len(OperationType.MITRE.value):]
+    return f"{REVERSE_MITRE_PREFIX}{suffix}"
+
+
+def _nearest_parallel_outside_line(
+    source_line: Tuple[Tuple[float, float], Tuple[float, float]],
+    outside_lines: Iterable[
+        Tuple[Tuple[float, float], Tuple[float, float]]
+    ],
+) -> Optional[
+    Tuple[
+        Tuple[Tuple[float, float], Tuple[float, float]],
+        float,
+    ]
+]:
+    source_start, source_end = source_line
+    delta_x = source_end[0] - source_start[0]
+    delta_y = source_end[1] - source_start[1]
+    source_length = math.hypot(delta_x, delta_y)
+    if source_length <= 1e-12:
+        return None
+    unit_x = delta_x / source_length
+    unit_y = delta_y / source_length
+    matches = []
+    for outside_line in outside_lines:
+        outside_start, outside_end = outside_line
+        outside_delta_x = outside_end[0] - outside_start[0]
+        outside_delta_y = outside_end[1] - outside_start[1]
+        outside_length = math.hypot(outside_delta_x, outside_delta_y)
+        if outside_length <= 1e-12:
+            continue
+        parallel_error = abs(
+            unit_x * outside_delta_y / outside_length
+            - unit_y * outside_delta_x / outside_length
+        )
+        if parallel_error > 1e-6:
+            continue
+        tangent_positions = [
+            (point[0] - source_start[0]) * unit_x
+            + (point[1] - source_start[1]) * unit_y
+            for point in outside_line
+        ]
+        if (
+            max(tangent_positions) < -MITRE_ENDPOINT_TOLERANCE_INTERNAL
+            or min(tangent_positions)
+            > source_length + MITRE_ENDPOINT_TOLERANCE_INTERNAL
+        ):
+            continue
+        perpendicular_distance = abs(
+            (outside_start[0] - source_start[0]) * -unit_y
+            + (outside_start[1] - source_start[1]) * unit_x
+        )
+        matches.append((perpendicular_distance, outside_line))
+    if not matches:
+        return None
+    distance, outside_line = min(matches, key=lambda match: match[0])
+    return outside_line, distance
 
 
 def _mitre_guide_segments(

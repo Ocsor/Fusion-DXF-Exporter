@@ -53,8 +53,8 @@ from ..utilities.reporting_utils import (
 )
 
 COMMAND_ID = "CuttingDXFExporter_ExportCuttingDXFs"
-ADDIN_VERSION = "0.6.5-outer-silhouette-loop"
-COMMAND_NAME = "Export Cutting DXFs (v0.6.5)"
+ADDIN_VERSION = "0.6.6-reverse-mitre-guides"
+COMMAND_NAME = "Export Cutting DXFs (v0.6.6)"
 COMMAND_DESCRIPTION = (
     "Analyse finished solid bodies before creating manufacturing DXF files. "
     f"Build {ADDIN_VERSION}."

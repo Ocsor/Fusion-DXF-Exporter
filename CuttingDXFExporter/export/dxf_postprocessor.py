@@ -13,6 +13,7 @@ LAYER_COLORS = {
     "FRONT_POCKET": 3,
     "FRONT_REBATE": 4,
     "MITRE": 6,
+    "REVERSE_MITRE": 6,
     "BACK_POCKET": 2,
     "BACK_REBATE": 6,
     "UNKNOWN": 8,

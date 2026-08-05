@@ -3,7 +3,7 @@
 ## Test Environment
 
 - Current Autodesk Fusion for Windows.
-- Add-in build `0.6.5-outer-silhouette-loop`.
+- Add-in build `0.6.6-reverse-mitre-guides`.
 - A new parametric Design.
 - Default tolerance `0.01 mm`.
 - An empty writable output folder.
@@ -185,6 +185,10 @@ whose touching edge joins an arc or other curved end geometry.
 ### Expected Result
 
 - Both mitre guides are exported on their calculated `MITRE_*DEG` layers.
+- A mitre whose source edge is inset from the body silhouette is exported on
+  `REVERSE_MITRE_*DEG` instead of `MITRE_*DEG`.
+- Its guide is offset from the overall `CUT_OUTSIDE` edge, not from the inset
+  reverse-face start edge.
 - `CUT_OUTSIDE` follows the overall projected body dimensions rather than the
   smaller planar face between the two mitres.
 - Through-holes are absent from `CUT_OUTSIDE` and remain on `CUT_INSIDE`.

@@ -1,7 +1,7 @@
 # Cutting DXF Exporter
 
-Current manifest version: `0.6.5`. Current visible build:
-`0.6.5-outer-silhouette-loop`.
+Current manifest version: `0.6.6`. Current visible build:
+`0.6.6-reverse-mitre-guides`.
 
 Cutting DXF Exporter is a Windows Autodesk Fusion add-in that derives
 manufacturing DXF files from finished solid B-Rep geometry.
@@ -53,6 +53,9 @@ Uncertain boundaries remain review-only.
   `0.5 mm` outward from the panel edge. Free endpoints extend `2 mm`; adjacent
   guides with the same mitre angle meet at their offset-line intersection
   without extension, while guides with different angles retain the extension.
+- Detects a reverse mitre when its projected source edge is inset from the
+  nearest parallel body-silhouette edge. Its guide is anchored to that outer
+  edge and exported on `REVERSE_MITRE_*DEG`.
 - Provides a unit-aware `Mitre guide offset` command input, defaulting to
   `0.5 mm`, so the guide distance can be changed for each export.
 - Adds the final DXF filename as centred text on a `markups` layer.
@@ -152,10 +155,10 @@ CuttingDXFExporter/
 6. Choose **Utilities > Add-Ins > Scripts and Add-Ins**.
 7. Select **CuttingDXFExporter** on the Add-Ins tab and choose **Run**.
 8. Optionally enable **Run on Startup**.
-9. Find **Export Cutting DXFs (v0.6.5)** in the Design workspace Add-Ins panel.
+9. Find **Export Cutting DXFs (v0.6.6)** in the Design workspace Add-Ins panel.
 
 For this merge-bodies build, the first row of the export dialog must show
-`0.6.5-outer-silhouette-loop`. If it shows an older build, Fusion is loading a
+`0.6.6-reverse-mitre-guides`. If it shows an older build, Fusion is loading a
 different installed copy; stop that add-in, replace or relink its complete
 `CuttingDXFExporter` folder, and run it again.
 
@@ -362,6 +365,11 @@ The complete body silhouette projected onto the selected manufacturing plane
 is the source for `CUT_OUTSIDE`. The straight mitre edge is projected separately
 and offset outward from the outside-profile centre by the `Mitre guide offset`
 command value, which defaults to `0.5 mm`.
+
+If the projected mitre edge is inset from a parallel outer-silhouette edge, it
+is treated as a reverse-side mitre. The guide is relocated to the outer edge,
+then offset outward by the configured distance, and placed on a layer such as
+`REVERSE_MITRE_90DEG`.
 A free endpoint is extended along the line axis by `2 mm`. When two detected
 mitre edges with the same angle share an endpoint, their offset lines are
 intersected and both guides terminate at that common point instead. Meeting
