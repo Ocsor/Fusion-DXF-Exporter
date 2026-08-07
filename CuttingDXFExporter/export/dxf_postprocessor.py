@@ -8,16 +8,16 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 GroupPair = Tuple[int, str]
 LAYER_COLORS = {
-    "CUT_OUTSIDE": 1,
-    "CUT_INSIDE": 5,
+    "CUT_OUTSIDE": 7,
+    "CUT_INSIDE": 7,
     "FRONT_POCKET": 3,
-    "FRONT_REBATE": 4,
-    "MITRE": 6,
-    "REVERSE_MITRE": 6,
-    "BACK_POCKET": 2,
-    "BACK_REBATE": 6,
+    "FRONT_REBATE": 3,
+    "MITRE": 1,
+    "REVERSE_MITRE": 1,
+    "BACK_POCKET": 3,
+    "BACK_REBATE": 3,
     "UNKNOWN": 8,
-    "markups": 2,
+    "markups": 4,
 }
 MARKUP_LAYER = "markups"
 CUT_DEDUPLICATION_TOLERANCE = 1e-5

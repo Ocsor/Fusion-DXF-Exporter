@@ -65,6 +65,10 @@ Uncertain boundaries remain review-only.
   filename match the new export.
 - Requires a Yes/No operator confirmation after showing the analysis.
 - Creates separate temporary sketches for every required operation/depth layer.
+- Assigns operation layer colours consistently: rebates and pockets lime green,
+  inside and outside cuts black/white, mitres red, and markups cyan.
+- Retains the standard empty DXF layer `0`, which CAD applications require and
+  do not allow users to delete.
 - Projects the complete B-Rep body silhouette for `CUT_OUTSIDE`, so mitred or
   fragmented support faces cannot reduce the overall cutting dimensions.
 - Keeps only the largest connected silhouette loop on `CUT_OUTSIDE`; projected
